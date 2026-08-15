@@ -29,6 +29,28 @@ class HaoStoryTests(unittest.TestCase):
         self.assertEqual(result.returncode, expected, result.stderr or result.stdout)
         return result
 
+    def make_project(self, parent: Path, name: str = "demo-project") -> Path:
+        project = parent / name
+        project.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=project, check=True)
+        (project / "README.md").write_text("# Demo\n", encoding="utf-8")
+        subprocess.run(["git", "add", "README.md"], cwd=project, check=True)
+        subprocess.run(
+            [
+                "git",
+                "-c",
+                "user.name=HaoStory Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-qm",
+                "init",
+            ],
+            cwd=project,
+            check=True,
+        )
+        return project
+
     def test_sanitize_common_private_values(self) -> None:
         fake_token = "sk-" + "a" * 16
         credential_url = "https://" + "alice:" + "password" + "@example.com"
@@ -46,16 +68,7 @@ class HaoStoryTests(unittest.TestCase):
 
     def test_end_to_end_bilingual_export(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
-            project = Path(temp) / "demo-project"
-            project.mkdir()
-            subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-            (project / "README.md").write_text("# Demo\n", encoding="utf-8")
-            subprocess.run(["git", "add", "README.md"], cwd=project, check=True)
-            subprocess.run(
-                ["git", "-c", "user.name=HaoStory Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "init"],
-                cwd=project,
-                check=True,
-            )
+            project = self.make_project(Path(temp))
 
             self.run_cli(project, "setup")
             started = self.run_cli(
@@ -111,6 +124,731 @@ class HaoStoryTests(unittest.TestCase):
             report = json.loads((session / "privacy-report.json").read_text(encoding="utf-8"))
             self.assertTrue(report["release_ready"])
             self.assertIn(".haostory/", (project / ".gitignore").read_text(encoding="utf-8"))
+
+    def test_assisted_auto_starts_meaningful_build_and_records_demo(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            result = self.run_cli(
+                project,
+                "suggest-start",
+                "--title",
+                "Build stage-aware capture",
+                "--summary",
+                "Implement a verifiable V2 capture window.",
+                "--type",
+                "software",
+                "--initiative",
+                "stage-aware-capture-v2",
+                "--phase",
+                "build",
+            )
+            decision = json.loads(result.stdout)
+            self.assertEqual(decision["action"], "started")
+            session = Path(decision["session"])
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "The CLI completed its first end-to-end run.",
+                "--novelty-key",
+                "first-cli-demo",
+                "--claim",
+                "Stage-aware capture can run locally.",
+                "--evidence-ref",
+                "command:first-demo",
+            )
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["initiative"], "stage-aware-capture-v2")
+            self.assertEqual(manifest["phase"], "build")
+            self.assertEqual(manifest["capture_window"]["status"], "active")
+            self.assertEqual(manifest["events"][-1]["event_type"], "demo")
+
+    def test_formatting_change_does_not_start_capture(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            result = self.run_cli(
+                project,
+                "suggest-start",
+                "--title",
+                "Reformat Markdown",
+                "--initiative",
+                "docs-cleanup",
+                "--phase",
+                "build",
+                "--work-kind",
+                "formatting",
+            )
+            decision = json.loads(result.stdout)
+            self.assertEqual(decision["action"], "ignore")
+            self.assertFalse(list((project / ".haostory").glob("*/manifest.json")))
+
+    def test_unconfigured_manual_and_off_modes_do_not_auto_start(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            unconfigured = self.run_cli(
+                project,
+                "suggest-start",
+                "--title",
+                "Unconfigured work",
+                "--initiative",
+                "mode-test",
+                "--phase",
+                "build",
+            )
+            self.assertEqual(json.loads(unconfigured.stdout)["action"], "ignore")
+            self.assertFalse((project / ".gitignore").exists())
+
+            config_path = Path(self.run_cli(project, "setup").stdout.strip())
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["capture"]["mode"] = "manual"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            manual = self.run_cli(
+                project,
+                "suggest-start",
+                "--title",
+                "Manual work",
+                "--initiative",
+                "mode-test",
+                "--phase",
+                "build",
+            )
+            self.assertEqual(json.loads(manual.stdout)["action"], "start_suggested")
+            self.assertFalse(list((project / ".haostory").glob("*/manifest.json")))
+
+            config["capture"]["mode"] = "off"
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            disabled = self.run_cli(
+                project,
+                "suggest-start",
+                "--title",
+                "Disabled work",
+                "--initiative",
+                "mode-test",
+                "--phase",
+                "build",
+            )
+            self.assertEqual(json.loads(disabled.stdout)["action"], "ignore")
+
+    def test_omitted_session_requires_one_active_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            only = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--session",
+                    "only-active",
+                    "--title",
+                    "Only active window",
+                    "--initiative",
+                    "only-active",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            self.run_cli(
+                project,
+                "remember",
+                "--event",
+                "decision",
+                "--notes",
+                "The unique active window may be inferred.",
+                "--novelty-key",
+                "unique-window",
+            )
+            only_manifest = json.loads((only / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(only_manifest["events"][-1]["novelty_key"], "unique-window")
+
+            second = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--session",
+                    "second-active",
+                    "--title",
+                    "Second active window",
+                    "--initiative",
+                    "second-active",
+                    "--phase",
+                    "validate",
+                ).stdout.strip()
+            )
+            result = self.run_cli(
+                project,
+                "remember",
+                "--event",
+                "decision",
+                "--notes",
+                "This must not be routed by directory name.",
+                "--novelty-key",
+                "ambiguous-window",
+                expected=1,
+            )
+            self.assertIn("only-active", result.stderr)
+            self.assertIn("second-active", result.stderr)
+            self.assertIn("--session", result.stderr)
+            for session in (only, second):
+                manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+                self.assertNotIn("ambiguous-window", json.dumps(manifest))
+
+    def test_v1_session_fallback_uses_manifest_updated_at(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            journal = project / ".haostory"
+            for name, updated_at in (
+                ("z-old", "2026-01-01T00:00:00+00:00"),
+                ("a-new", "2026-08-15T00:00:00+00:00"),
+            ):
+                session = journal / name
+                (session / "evidence").mkdir(parents=True)
+                (session / "assets").mkdir()
+                (session / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "schema": "haostory/v1",
+                            "project": project.name,
+                            "title": name,
+                            "summary": "",
+                            "type": "software",
+                            "started_at": updated_at,
+                            "updated_at": updated_at,
+                            "stages": [],
+                            "assets": [],
+                            "commands": [],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            self.run_cli(
+                project,
+                "checkpoint",
+                "--stage",
+                "decision",
+                "--notes",
+                "The newest V1 manifest is selected by updated_at.",
+            )
+            old = json.loads((journal / "z-old" / "manifest.json").read_text(encoding="utf-8"))
+            new = json.loads((journal / "a-new" / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(old["stages"], [])
+            self.assertEqual(new["stages"][-1]["notes"], "The newest V1 manifest is selected by updated_at.")
+
+    def test_session_ids_cannot_escape_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            outside = project / "outside-session"
+            outside.mkdir()
+            outside_manifest = {
+                "schema": "haostory/v1",
+                "project": project.name,
+                "title": "Outside",
+                "summary": "",
+                "type": "software",
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "capture_window": {"status": "active"},
+                "events": [],
+                "stages": [],
+                "assets": [],
+                "commands": [],
+            }
+            (outside / "manifest.json").write_text(json.dumps(outside_manifest), encoding="utf-8")
+            for unsafe_session in ("../outside-session", str(outside)):
+                result = self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    unsafe_session,
+                    "--event",
+                    "decision",
+                    "--notes",
+                    "Must stay inside the journal.",
+                    "--novelty-key",
+                    "path-escape",
+                    expected=1,
+                )
+                self.assertIn("direct child", result.stderr)
+            unchanged = json.loads((outside / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(unchanged["events"], [])
+
+    def test_registry_path_cannot_escape_journal(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            config_path = Path(self.run_cli(project, "setup").stdout.strip())
+            outside = project.parent / "outside-registry.json"
+            outside.write_text('{"sentinel": true}\n', encoding="utf-8")
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            for unsafe_registry in ("../outside-registry.json", str(outside)):
+                config["story_memory"]["registry"] = unsafe_registry
+                config_path.write_text(json.dumps(config), encoding="utf-8")
+                result = self.run_cli(
+                    project,
+                    "registry",
+                    "do-not-repeat",
+                    "--text",
+                    "Do not write outside the journal.",
+                    expected=1,
+                )
+                self.assertIn("inside", result.stderr)
+                self.assertIn(".haostory", result.stderr)
+                self.assertEqual(outside.read_text(encoding="utf-8"), '{"sentinel": true}\n')
+
+    def test_symlinked_journal_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            parent = Path(temp)
+            project = self.make_project(parent, "symlink-project")
+            outside = parent / "outside-journal"
+            outside.mkdir()
+            (project / ".haostory").symlink_to(outside, target_is_directory=True)
+            result = self.run_cli(project, "setup", expected=1)
+            self.assertIn("symlinked", result.stderr)
+            self.assertFalse((outside / "story-registry.json").exists())
+
+    def test_archive_only_and_do_not_repeat_have_cli_operations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            first = self.run_cli(
+                project,
+                "registry",
+                "do-not-repeat",
+                "--text",
+                "The complete project origin.",
+            )
+            second = self.run_cli(
+                project,
+                "registry",
+                "do-not-repeat",
+                "--text",
+                "The complete project origin.",
+            )
+            self.assertEqual(json.loads(first.stdout)["action"], "recorded")
+            self.assertEqual(json.loads(second.stdout)["action"], "already_present")
+
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Human publication controls",
+                    "--initiative",
+                    "human-controls",
+                    "--phase",
+                    "design",
+                ).stdout.strip()
+            )
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "decision",
+                "--notes",
+                "This restates excluded background.",
+                "--novelty-key",
+                "origin-repeat",
+                "--claim",
+                "The complete project origin.",
+            )
+            checked = json.loads(
+                self.run_cli(project, "registry", "check", "--session", session.name).stdout
+            )
+            self.assertEqual(checked["recommendation"], "archive")
+            self.assertEqual(checked["repeated_claims"], ["The complete project origin."])
+
+            marked = json.loads(
+                self.run_cli(
+                    project,
+                    "archive-only",
+                    "--session",
+                    session.name,
+                    "--reason",
+                    "The user said this must not be public.",
+                ).stdout
+            )
+            self.assertTrue(marked["archive_only"])
+            plan = json.loads(self.run_cli(project, "story-plan", "--session", session.name).stdout)
+            self.assertEqual(plan["route"], "archive")
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertTrue(manifest["archive_only"])
+            self.assertIn("must not be public", manifest["archive_only_reason"])
+
+    def test_duplicate_failures_fold_and_recovery_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            started = self.run_cli(
+                project,
+                "start",
+                "--title",
+                "Deduplicate retries",
+                "--initiative",
+                "dedupe",
+                "--phase",
+                "build",
+            )
+            session = Path(started.stdout.strip())
+            for _ in range(3):
+                self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "failure",
+                    "--notes",
+                    "The same test failed with exit code 1.",
+                    "--novelty-key",
+                    "test-exit-1",
+                )
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "recovery",
+                "--notes",
+                "A different implementation made the test pass.",
+                "--novelty-key",
+                "test-exit-1",
+            )
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            failures = [item for item in manifest["events"] if item["event_type"] == "failure"]
+            recoveries = [item for item in manifest["events"] if item["event_type"] == "recovery"]
+            self.assertEqual(len(failures), 1)
+            self.assertEqual(failures[0]["occurrence_count"], 3)
+            self.assertEqual(len(recoveries), 1)
+
+    def test_validate_phase_inherits_minimal_build_context(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            build = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Build the capture model",
+                    "--summary",
+                    "Create the first working implementation.",
+                    "--initiative",
+                    "capture-v2",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            self.run_cli(
+                project,
+                "close-phase",
+                "--session",
+                build.name,
+                "--result",
+                "The build is runnable.",
+                "--lesson",
+                "Validation must test behavior, not implementation activity.",
+            )
+            validate = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Validate the capture model",
+                    "--initiative",
+                    "capture-v2",
+                    "--phase",
+                    "validate",
+                ).stdout.strip()
+            )
+            manifest = json.loads((validate / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["phase"], "validate")
+            self.assertEqual(manifest["necessary_context"]["source_session"], build.name)
+            self.assertNotEqual(validate.name, build.name)
+
+    def test_registry_marks_published_claim_without_new_evidence_as_archive(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+
+            first = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--session",
+                    "positioning-first",
+                    "--title",
+                    "Positioning",
+                    "--initiative",
+                    "positioning",
+                    "--phase",
+                    "design",
+                ).stdout.strip()
+            )
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                first.name,
+                "--event",
+                "decision",
+                "--notes",
+                "Keep the product personally curated.",
+                "--novelty-key",
+                "curated-positioning",
+                "--claim",
+                "UP2U is curated by one person.",
+                "--evidence-ref",
+                "decision:positioning",
+            )
+            self.run_cli(
+                project,
+                "registry",
+                "publish",
+                "--session",
+                first.name,
+                "--story",
+                "positioning-v1",
+                "--channel",
+                "wechat",
+                "--confirmed",
+            )
+
+            second = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--session",
+                    "positioning-repeat",
+                    "--title",
+                    "Positioning again",
+                    "--initiative",
+                    "positioning-followup",
+                    "--phase",
+                    "design",
+                ).stdout.strip()
+            )
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                second.name,
+                "--event",
+                "decision",
+                "--notes",
+                "Repeat the existing positioning.",
+                "--novelty-key",
+                "curated-positioning-repeat",
+                "--claim",
+                "UP2U is curated by one person.",
+                "--evidence-ref",
+                "decision:positioning",
+            )
+            checked = self.run_cli(project, "registry", "check", "--session", second.name)
+            result = json.loads(checked.stdout)
+            self.assertEqual(result["recommendation"], "archive")
+            self.assertEqual(result["repeated_claims"], ["UP2U is curated by one person."])
+
+    def test_pause_stops_auto_remember_until_resume(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Pause test",
+                    "--initiative",
+                    "pause-test",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            self.run_cli(project, "pause", "--session", session.name, "--reason", "This section is excluded.")
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "decision",
+                "--notes",
+                "This must not be captured.",
+                "--novelty-key",
+                "excluded",
+                expected=1,
+            )
+            self.run_cli(project, "resume", "--session", session.name)
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "decision",
+                "--notes",
+                "Capture resumed.",
+                "--novelty-key",
+                "resumed",
+            )
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn("excluded", json.dumps(manifest["events"]))
+            self.assertIn("resumed", json.dumps(manifest["events"]))
+
+    def test_visual_assets_require_explicit_checkpoint_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            asset = project / "demo.png"
+            asset.write_bytes(b"not-a-real-image")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Asset boundary",
+                    "--initiative",
+                    "assets",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "demo",
+                    "--notes",
+                    "Do not copy the asset automatically.",
+                    "--novelty-key",
+                    "asset-demo",
+                    "--asset",
+                    str(asset),
+                ],
+                cwd=project,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(list((session / "assets").rglob("*.png")))
+
+    def test_handoff_close_does_not_export_publish_or_register(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Close on handoff",
+                    "--initiative",
+                    "handoff",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            closed = self.run_cli(
+                project,
+                "close-phase",
+                "--session",
+                session.name,
+                "--result",
+                "Implementation entered review.",
+                "--handoff",
+            )
+            result = json.loads(closed.stdout)
+            self.assertEqual(result["status"], "closed")
+            self.assertFalse(result["published"])
+            self.assertFalse((session / "exports").exists())
+            registry = json.loads((project / ".haostory" / "story-registry.json").read_text(encoding="utf-8"))
+            self.assertEqual(registry["published_stories"], [])
+
+    def test_v1_commands_work_on_manifest_without_v2_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            session = project / ".haostory" / "legacy-v1"
+            (session / "evidence").mkdir(parents=True)
+            (session / "assets").mkdir()
+            (session / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "schema": "haostory/v1",
+                        "project": "demo-project",
+                        "title": "Legacy V1",
+                        "summary": "An old manifest.",
+                        "type": "software",
+                        "started_at": "2026-01-01T00:00:00+00:00",
+                        "updated_at": "2026-01-01T00:00:00+00:00",
+                        "stages": [],
+                        "assets": [],
+                        "commands": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.run_cli(
+                project,
+                "checkpoint",
+                "--session",
+                session.name,
+                "--stage",
+                "decision",
+                "--notes",
+                "Legacy checkpoint remains supported.",
+            )
+            self.run_cli(
+                project,
+                "finish",
+                "--session",
+                session.name,
+                "--outcome",
+                "Legacy session finished.",
+                "--lesson",
+                "Compatibility is explicit.",
+            )
+            self.run_cli(project, "audit", "--session", session.name)
+            self.run_cli(project, "export", "--session", session.name)
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema"], "haostory/v1")
+
+    def test_high_risk_privacy_finding_blocks_publication_recommendation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Privacy gate",
+                    "--initiative",
+                    "privacy",
+                    "--phase",
+                    "validate",
+                ).stdout.strip()
+            )
+            unsafe = session / "evidence" / "unsafe.txt"
+            unsafe.write_text("Bearer " + "x" * 24, encoding="utf-8")
+            self.run_cli(project, "export", "--session", session.name, expected=2)
+            package = json.loads((session / "exports" / "content-package.json").read_text(encoding="utf-8"))
+            self.assertFalse(package["privacy"]["release_ready"])
+            self.assertEqual(package["publication_recommendation"], "blocked_privacy")
 
     def test_public_tree_has_no_personal_absolute_paths(self) -> None:
         forbidden = ("/" + "Users/", "/root/" + "howie", "192." + "144.")

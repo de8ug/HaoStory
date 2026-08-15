@@ -6,6 +6,11 @@
 - Keep `.haostory/` ignored by Git.
 - Do not point `--asset` at a full desktop screenshot, private chat, analytics page with user data, browser profile, or credential screen.
 - Do not run commands that print the environment, authentication state, remote URLs with credentials, or secret-manager output.
+- Keep ordinary `--session` IDs and the configured story registry inside the current project's real, non-symlinked `.haostory/` directory.
+
+## Explicit external audit/export paths
+
+The optional positional path accepted by `audit` and `export` is a separate, human-authorized compatibility mechanism for reviewing an existing session directory. Use it only when the user explicitly selected that directory. It does not relax ordinary `--session` or registry containment, and it must never be inferred from project data.
 
 ## Files never to read
 
@@ -47,4 +52,3 @@ Before publishing:
 4. Search the public repository and its Git history for personal paths and secret patterns.
 5. Use a clean repository history for the first public release.
 6. Rotate any credential that has appeared in a terminal, diff, screenshot, Git remote, or earlier commit.
-

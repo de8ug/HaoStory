@@ -22,6 +22,16 @@ HaoStory captures those moments while the work is happening, then creates an edi
 - selected command output and visual evidence;
 - a story-value score that helps decide whether to publish.
 
+## Stage-aware capture
+
+HaoStory V2 organizes local evidence as Project → Initiative → Phase → Capture Window → Event. An enabled project defaults to `assisted-auto`: the agent can start or resume meaningful local work and fold repeated events, but must announce every lifecycle change. Use `manual` for sensitive work and `off` when nothing should be recorded.
+
+Routine formatting, dependency installation, simple fixes, consulting answers, and mechanical renames do not auto-start a story. High-confidence events include decisions, scope changes, failures, recoveries, before/after proof, milestones, demos, metrics, and redacted external signals.
+
+Published claims are remembered in local `.haostory/story-registry.json`. Before export, HaoStory separates new claims and evidence from necessary context and repetition. A repeated claim without new evidence is routed to archive. Visual assets, brand/CTA choices, story splitting or merging, registry publication facts, and real publication remain human-controlled.
+
+When `--session` is omitted, HaoStory uses the only active or paused window. Multiple candidates produce an explicit error; with no active window, V1 fallback uses the newest manifest `updated_at`. Ordinary session IDs and registry paths cannot escape the project's non-symlinked `.haostory/` directory.
+
 ## Outputs
 
 ```text
@@ -47,6 +57,12 @@ Copy `skill/haostory` into the skills directory used by your agent, or ask the a
 
 ```bash
 python3 skill/haostory/scripts/haostory.py setup
+# Assisted-auto route (use this or the explicit start below)
+python3 skill/haostory/scripts/haostory.py suggest-start \
+  --title "Build stage-aware capture" \
+  --initiative stage-aware-capture-v2 \
+  --phase build
+# Explicit/manual-compatible start
 python3 skill/haostory/scripts/haostory.py start \
   --title "Build the first homepage" \
   --summary "Test a new product direction" \
@@ -55,6 +71,21 @@ python3 skill/haostory/scripts/haostory.py checkpoint \
   --stage decision \
   --notes "Changed the homepage from a tool directory to a problem navigator" \
   --decision "Lead with user problems, not AI brands"
+python3 skill/haostory/scripts/haostory.py remember \
+  --event failure \
+  --notes "The same validation failed" \
+  --novelty-key validation-exit-1
+python3 skill/haostory/scripts/haostory.py pause --reason "This section is excluded"
+python3 skill/haostory/scripts/haostory.py resume
+python3 skill/haostory/scripts/haostory.py close-phase \
+  --result "The build is ready for validation" \
+  --handoff
+python3 skill/haostory/scripts/haostory.py archive-only \
+  --reason "The user said this must not be public"
+python3 skill/haostory/scripts/haostory.py registry do-not-repeat \
+  --text "Background that must not be repeated"
+python3 skill/haostory/scripts/haostory.py registry check
+python3 skill/haostory/scripts/haostory.py story-plan
 python3 skill/haostory/scripts/haostory.py finish \
   --outcome "The homepage shipped and passed its tests" \
   --lesson "Positioning decisions are part of the product"
@@ -62,6 +93,10 @@ python3 skill/haostory/scripts/haostory.py export
 ```
 
 HaoStory never makes captured material public automatically. Review the privacy report and every image before sharing.
+
+### V1 compatibility
+
+Existing `haostory/v1` manifests and the `start`, `checkpoint`, `finish`, `audit`, and `export` commands continue to work. V2 adds optional fields and a local registry; no destructive migration is required.
 
 ## Open core
 

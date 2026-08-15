@@ -11,5 +11,30 @@
     "enabled": false,
     "en": "The core workflow is open source. Private integrations, tailored workflows, and implementation partnerships may be offered separately.",
     "zh-CN": "核心工作流保持开源；私有系统集成、定制工作流与落地合作可另行提供。"
+  },
+  "capture": {
+    "mode": "assisted-auto",
+    "auto_start": true,
+    "auto_checkpoint": [
+      "decision",
+      "scope_change",
+      "failure",
+      "recovery",
+      "before_after",
+      "milestone",
+      "demo",
+      "metric",
+      "external_signal"
+    ],
+    "auto_finish_on_handoff": true,
+    "require_notice": true,
+    "assets_require_confirmation": true
+  },
+  "story_memory": {
+    "enabled": true,
+    "registry": ".haostory/story-registry.json",
+    "require_new_claim_or_evidence": true,
+    "max_context_ratio_short": 0.15,
+    "max_context_ratio_long": 0.1
   }
 }
