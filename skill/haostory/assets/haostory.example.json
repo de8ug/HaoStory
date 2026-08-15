@@ -1,0 +1,15 @@
+{
+  "languages": ["zh-CN", "en"],
+  "brand": {
+    "name": "",
+    "name_zh": "",
+    "website": "",
+    "cta_en": "",
+    "cta_zh": ""
+  },
+  "commercial_note": {
+    "enabled": false,
+    "en": "The core workflow is open source. Private integrations, tailored workflows, and implementation partnerships may be offered separately.",
+    "zh-CN": "核心工作流保持开源；私有系统集成、定制工作流与落地合作可另行提供。"
+  }
+}
