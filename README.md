@@ -14,6 +14,17 @@ Most project stories are reconstructed after the work is done. The useful detail
 
 HaoStory captures those moments while the work is happening, then creates an editable bilingual output structure. The CLI does not call an AI service; the agent using the Skill rewrites or translates each language from the evidence. Nothing is uploaded or published automatically.
 
+## Who it is for
+
+HaoStory is not only for software development. It is for anyone doing meaningful work with an AI agent who wants to preserve the useful parts of the journey:
+
+- independent builders and creators;
+- educators, researchers, and content teams;
+- product, workflow, and creative experiments;
+- people turning real work, learning, or everyday problem-solving into reusable knowledge.
+
+When code exists, HaoStory can capture Git evidence. Code is not required: decisions, drafts, tests, visuals, feedback, and before/after proof can tell the story too.
+
 ## What it captures
 
 - task intent and outcome;
@@ -101,6 +112,10 @@ Existing `haostory/v1` manifests and the `start`, `checkpoint`, `finish`, `audit
 ## Open core
 
 The core workflow is open source under the MIT License. Private integrations, tailored workflows, and implementation partnerships may be offered separately. See [howie.wang](https://howie.wang/) for current projects and contact options.
+
+## About Howie
+
+[Howie Wang](https://howie.wang/) / 浩哥 explores how AI can help people work, learn, create, and live better. HaoStory is one part of that ongoing practice, alongside real products, content experiments, education, and everyday problem-solving.
 
 ## Follow the experiments
 
