@@ -1,5 +1,7 @@
 # HaoStory
 
+> **本地运行策略：默认暂停。** 只有浩哥明确为某个命名项目启用 HaoStory，或明确要求进行一次手动记录时才运行。`setup` 只初始化配置，不代表项目已经选择加入。
+
 **做一次，讲清楚。**
 
 HaoStory 是一个本地优先、天然双语的 Agent Skill。它把真实的软件开发、产品实验、内容实验和研究过程，沉淀为有证据的文章、视频脚本、社媒短帖与公开开发记录。
@@ -12,7 +14,7 @@ HaoStory 是一个本地优先、天然双语的 Agent Skill。它把真实的�
 
 很多项目故事是在工作结束以后凭记忆补写的。这时真正有价值的细节往往已经丢了：失败过什么、为什么改变判断、测试怎样证明结果、前后到底有什么差异。
 
-HaoStory 在工作发生时记录这些节点，结束后建立可编辑的中英文内容结构。CLI 本身不调用 AI 服务；使用 Skill 的 Agent 根据证据分别改写或翻译两种语言。源代码不会上传，内容也不会自动发布。
+HaoStory 在工作发生时只保留少量关键节点，为后续文章或视频准备材料。CLI 本身不调用 AI 服务；不会自动 commit、push、上传、制作成品或发布。
 
 ## 适合谁
 
@@ -27,28 +29,36 @@ HaoStory 不只面向软件开发者。只要你正在与 AI Agent 一起完成�
 
 ## 记录什么
 
-- 任务目标和最终结果；
+- 阶段目标和最终结果；
 - 经过隐私脱敏的 Git 状态与代码差异；
 - 关键检查点里的判断、取舍和经验；
-- 用户明确选择的命令输出和视觉证据；
+- 选定的命令输出，以及自动沉淀的关键视觉证据；
 - 用于判断是否值得发布的故事价值评分。
 
 ## 分阶段智能采集
 
-HaoStory V2 按 Project → Initiative → Phase → Capture Window → Event 管理本地证据。已启用项目默认使用 `assisted-auto`：Agent 可以为有明确目标的工作开始或恢复本地文本采集、折叠重复事件，但每次开始、暂停、恢复和结束都必须告知用户。敏感工作可用 `manual`，不需要记录时用 `off`。
+HaoStory V2 按 Project → Initiative → Phase → Capture Window → Event 管理证据。一个 Phase 可以是一项有明确结果的开发任务，也可以是路线图里提前规划的阶段。新项目默认 `off`；只有显式执行 `enable`，命名项目才进入 `assisted-auto`。Agent 会告知生命周期变化、折叠重复信息，并且每个阶段通常最多保留 4 个不同事件。
 
 普通格式调整、依赖安装、简单修复、纯咨询和机械改名不会自动新建故事。高置信事件包括决策、范围变化、失败、恢复、前后对比、里程碑、Demo、指标和脱敏后的外部反馈。
 
-已公开观点保存在本地 `.haostory/story-registry.json`。导出前会区分新观点、新证据、必要背景和重复观点；已发布观点没有新证据时默认归档。视觉素材、品牌与 CTA、故事拆合、登记已发布事实和真实发布始终需要人工确认。
+已公开观点保存在本地 `.haostory/story-registry.json`。导出前会区分新观点、新证据、必要背景和重复观点；已发布观点没有新证据时默认归档。
+
+在 assisted-auto 工作过程中，Agent 会把关键失败、恢复、前后对比、里程碑和 Demo 的稳定截图直接保存到私有会话 `assets/`。不建立候选清单，也不逐张确认。只有某个重要取舍确实无法判断时，才向用户提出一个简短问题，不做连续访谈。
+
+阶段结束时会生成一份简短的私有阶段材料并报告位置。经过一次阶段级确认后，`share-stage --confirmed` 可以把精简 Markdown 和已选图片放进项目指定目录，供用户后续通过普通 Git 流程跨设备读取。HaoStory 自身不会 commit、push、上传或发布；制作文章、视频成品仍需单独请求。
 
 省略 `--session` 时，HaoStory 只会选择唯一的 active/paused 窗口；存在多个候选时明确报错，没有活跃窗口时按 manifest 的 `updated_at` 选择最新 V1 会话。普通 session ID 和 registry 路径不能逃出项目内非符号链接的 `.haostory/`。
 
 ## 快速开始
 
+私有原始记录保存在 Git 忽略的 `.haostory/`；经过阶段级确认的精简材料默认可准备到 `docs/project-history/<initiative>/<session>/`。后者是否提交或同步仍由用户另行决定。
+
 把 `skill/haostory` 复制到你的 Agent Skill 目录，或者让 Agent 直接阅读仓库中的 `SKILL.md`。
 
 ```bash
 python3 skill/haostory/scripts/haostory.py setup
+python3 skill/haostory/scripts/haostory.py enable \
+  --history-dir docs/project-history
 # assisted-auto 路由（与下面的显式 start 二选一）
 python3 skill/haostory/scripts/haostory.py suggest-start \
   --title "实现分阶段采集" \
@@ -64,14 +74,17 @@ python3 skill/haostory/scripts/haostory.py checkpoint \
   --notes "首页从工具导航调整为问题导航" \
   --decision "先展示用户问题，而不是 AI 品牌"
 python3 skill/haostory/scripts/haostory.py remember \
-  --event failure \
-  --notes "同一次验证再次失败" \
-  --novelty-key validation-exit-1
+  --event demo \
+  --notes "稳定后的桌面端结果" \
+  --novelty-key stable-demo \
+  --asset /tmp/stable-demo.png
 python3 skill/haostory/scripts/haostory.py pause --reason "这段不记录"
 python3 skill/haostory/scripts/haostory.py resume
 python3 skill/haostory/scripts/haostory.py close-phase \
   --result "构建阶段已可进入验证" \
   --handoff
+python3 skill/haostory/scripts/haostory.py share-stage \
+  --confirmed
 python3 skill/haostory/scripts/haostory.py archive-only \
   --reason "用户明确要求这次不要公开"
 python3 skill/haostory/scripts/haostory.py registry do-not-repeat \
@@ -82,9 +95,10 @@ python3 skill/haostory/scripts/haostory.py finish \
   --outcome "主页完成并通过测试" \
   --lesson "产品定位判断本身也是产品的一部分"
 python3 skill/haostory/scripts/haostory.py export
+python3 skill/haostory/scripts/haostory.py disable
 ```
 
-HaoStory 不会自动公开素材。分享以前必须查看隐私报告，并人工检查每张图片。
+阶段结束不会自动生成内容、改变 Git 历史、上传文件或发布。下一步操作前必须查看隐私报告、阶段素材包，并验收最终视频或文章。
 
 ### V1 兼容
 

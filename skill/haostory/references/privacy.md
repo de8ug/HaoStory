@@ -3,10 +3,27 @@
 ## Before capture
 
 - Confirm the repository is the intended project.
+- Confirm the user explicitly enabled HaoStory for this named project, or explicitly requested this one manual session. `setup` alone is not consent to capture.
 - Keep `.haostory/` ignored by Git.
 - Do not point `--asset` at a full desktop screenshot, private chat, analytics page with user data, browser profile, or credential screen.
 - Do not run commands that print the environment, authentication state, remote URLs with credentials, or secret-manager output.
 - Keep ordinary `--session` IDs and the configured story registry inside the current project's real, non-symlinked `.haostory/` directory.
+
+## Assisted visual capture
+
+- Capture only the current task's meaningful visual state at `failure`, `recovery`, `before_after`, `milestone`, or `demo` events.
+- Wait for loading and entrance animations to settle. Recapture transparent, blank, clipped, or spinner frames instead of storing them.
+- Store valid screenshots directly with `remember --asset`; do not create candidate queues or require per-image confirmation.
+- Never capture private chats, credential or account screens, browser profiles, production user data, unrelated windows, or full-desktop views that expose other applications.
+- Local asset capture does not authorize content production or publication. Review generated content before release.
+
+## Project-history gate
+
+- Treat `.haostory/` as private working material.
+- Ask for one phase-level confirmation before `share-stage`; do not ask for every ordinary image.
+- `--confirmed` means the user reviewed the phase for placement in the local project history. It does not authorize a Git commit, push, upload, publication, or reuse in another project.
+- The text audit cannot inspect image pixels. Before confirmation, inspect selected screenshots for credentials, children or third parties, private messages, account details, server addresses, unpublished business data, and unrelated windows.
+- Keep shared packages concise: summary, key decisions, reusable conclusions, evidence references, and only the few images needed to support them.
 
 ## Explicit external audit/export paths
 

@@ -67,12 +67,24 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "zh-CN": "核心工作流保持开源；私有系统集成、定制工作流与落地合作可另行提供。",
     },
     "capture": {
-        "mode": "assisted-auto",
-        "auto_start": True,
+        "mode": "off",
+        "auto_start": False,
         "auto_checkpoint": list(HIGH_CONFIDENCE_EVENTS),
         "auto_finish_on_handoff": True,
         "require_notice": True,
-        "assets_require_confirmation": True,
+        "assets_require_confirmation": False,
+        "max_events_per_phase": 4,
+    },
+    "visual_capture": {
+        "enabled": True,
+        "mode": "when-enabled",
+        "capture_events": ["failure", "recovery", "before_after", "milestone", "demo"],
+        "store_directly_in_assets": True,
+        "wait_for_stable_view": True,
+        "recapture_invalid_frames": True,
+        "production_requires_request": True,
+        "prompt_on_phase_close": True,
+        "final_content_review_required": True,
     },
     "story_memory": {
         "enabled": True,
@@ -80,6 +92,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "require_new_claim_or_evidence": True,
         "max_context_ratio_short": 0.15,
         "max_context_ratio_long": 0.10,
+    },
+    "project_history": {
+        "enabled": False,
+        "directory": "docs/project-history",
+        "requires_stage_confirmation": True,
+        "auto_commit": False,
+        "auto_push": False,
+        "auto_upload": False,
     },
 }
 
@@ -136,7 +156,11 @@ def load_config(root: Path) -> dict[str, Any]:
         custom = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"Invalid {CONFIG_FILE}: {exc}") from exc
-    return deep_merge(DEFAULT_CONFIG, custom)
+    merged = deep_merge(DEFAULT_CONFIG, custom)
+    # V2.1 moved review from individual local assets to the final content gate.
+    # Keep the legacy key deterministic even in projects created by earlier versions.
+    merged.setdefault("capture", {})["assets_require_confirmation"] = False
+    return merged
 
 
 def is_sensitive_path(path: Path) -> bool:
@@ -199,6 +223,22 @@ def safe_text(text: str, limit: int = MAX_CAPTURE_CHARS) -> str:
     return text
 
 
+def project_history_text(text: str) -> str:
+    sanitized = sanitize(text)
+
+    def redact_private_ip(match: re.Match[str]) -> str:
+        raw = match.group(0)
+        try:
+            address = ipaddress.ip_address(raw)
+        except ValueError:
+            return raw
+        if address.is_private and not address.is_loopback:
+            return "<private-ip-redacted>"
+        return raw
+
+    return re.sub(r"\b(?:\d{1,3}\.){3}\d{1,3}\b", redact_private_ip, sanitized)
+
+
 def ensure_gitignore(root: Path) -> None:
     path = root / ".gitignore"
     current = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -218,6 +258,30 @@ def project_journal(root: Path, create: bool = False) -> Path:
     if create:
         journal.mkdir(exist_ok=True)
     return journal
+
+
+def project_history_root(
+    root: Path, config: dict[str, Any], *, create: bool = False
+) -> Path:
+    raw = str(config.get("project_history", {}).get("directory", "docs/project-history")).strip()
+    candidate = Path(raw)
+    if not raw or candidate.is_absolute() or raw in {".", ".."}:
+        raise SystemExit("Project history directory must be a non-empty project-relative path.")
+    if any(part in {"..", ".git", JOURNAL_DIR} for part in candidate.parts):
+        raise SystemExit("Project history must stay outside .git/ and .haostory/ inside the project.")
+    current = root
+    for part in candidate.parts:
+        current = current / part
+        if current.is_symlink():
+            raise SystemExit("Project history directory must not contain symlinks.")
+    resolved = (root / candidate).resolve()
+    try:
+        resolved.relative_to(root.resolve())
+    except ValueError as exc:
+        raise SystemExit("Project history directory must stay inside the project.") from exc
+    if create:
+        resolved.mkdir(parents=True, exist_ok=True)
+    return resolved
 
 
 def setup_project(root: Path) -> Path:
@@ -561,6 +625,10 @@ def copy_assets(session: Path, stage: str, assets: list[str]) -> list[str]:
             raise SystemExit(f"Refusing to copy a sensitive-looking asset: {source.name}")
         destination.mkdir(parents=True, exist_ok=True)
         target = destination / source.name
+        counter = 2
+        while target.exists():
+            target = destination / f"{source.stem}-{counter}{source.suffix}"
+            counter += 1
         shutil.copy2(source, target)
         copied.append(str(target.relative_to(session)))
     return copied
@@ -717,6 +785,165 @@ def build_story_plan(
     }
 
 
+def build_content_readiness(
+    manifest: dict[str, Any], plan: dict[str, Any], report: dict[str, Any]
+) -> dict[str, Any]:
+    _, evidence_refs = session_claims_and_evidence(manifest)
+    git_evidence_count = sum(bool(stage.get("evidence")) for stage in manifest.get("stages", []))
+    evidence_count = len(evidence_refs) + len(manifest.get("commands", [])) + git_evidence_count
+    route = plan.get("route", "archive")
+    if not report.get("release_ready", False):
+        route = "blocked_privacy"
+    return {
+        "ready_at": now_iso(),
+        "event_count": len(manifest.get("events", [])),
+        "evidence_count": evidence_count,
+        "asset_count": len(manifest.get("assets", [])),
+        "assets_path": "assets",
+        "recommended_route": route,
+        "privacy_release_ready": bool(report.get("release_ready", False)),
+        "visual_review_at_content_gate": bool(
+            report.get("visual_review_at_content_gate", report.get("manual_asset_review_required", False))
+        ),
+        "production_requires_request": True,
+        "content_generated": False,
+        "publication_confirmed": False,
+        "options": ["video", "article", "video_and_article", "archive"],
+        "prompt": "Produce video, article, both, or archive this phase?",
+    }
+
+
+def render_stage_brief(
+    manifest: dict[str, Any], assets: list[str] | None = None, *, reviewed: bool = False
+) -> str:
+    event_lines: list[str] = []
+    for event in manifest.get("events", []):
+        note = project_history_text(str(event.get("notes", ""))).strip()
+        if note:
+            event_lines.append(
+                f"- **{project_history_text(str(event.get('event_type', 'event')))}:** {note}"
+            )
+    if not event_lines:
+        event_lines.append("- No additional key event was needed for this stage.")
+
+    claims, evidence_refs = session_claims_and_evidence(manifest)
+    claim_lines = [f"- {project_history_text(item)}" for item in claims] or ["- No separate claim recorded."]
+    evidence_lines = [f"- {project_history_text(item)}" for item in evidence_refs] or ["- No separate evidence reference recorded."]
+    visual_lines = [f"![Stage evidence]({Path(item).as_posix()})" for item in (assets or [])]
+    if not visual_lines:
+        visual_lines = ["No visual asset was needed for this stage."]
+
+    footer = (
+        "> 这是经过阶段级确认的素材包，不是已发布文章。对外使用前仍需再次核对表述与隐私。\n"
+        if reviewed
+        else "> 这是私有工作摘要。复制到项目历史目录前，请先完成阶段级检查。\n"
+    )
+    return (
+        f"# {project_history_text(str(manifest.get('title', 'Project stage')))}\n\n"
+        f"- Project: `{project_history_text(str(manifest.get('project', '')))}`\n"
+        f"- Initiative: `{project_history_text(str(manifest.get('initiative', '')))}`\n"
+        f"- Phase: `{project_history_text(str(manifest.get('phase', '')))}`\n"
+        f"- Source session: `{project_history_text(str(manifest.get('capture_window', {}).get('id', '')))}`\n\n"
+        "## 阶段目标 / Goal\n\n"
+        f"{project_history_text(str(manifest.get('summary', ''))) or 'No separate goal summary was recorded.'}\n\n"
+        "## 阶段结果 / Result\n\n"
+        f"{project_history_text(str(manifest.get('outcome', ''))) or 'No result recorded.'}\n\n"
+        "## 关键节点 / What mattered\n\n"
+        + "\n".join(event_lines)
+        + "\n\n## 可复用结论 / Reusable conclusion\n\n"
+        f"{project_history_text(str(manifest.get('lesson', ''))) or 'No separate lesson recorded.'}\n\n"
+        "## 后续写作观点 / Claims for later writing\n\n"
+        + "\n".join(claim_lines)
+        + "\n\n## 证据引用 / Evidence references\n\n"
+        + "\n".join(evidence_lines)
+        + "\n\n## 图片素材 / Visual material\n\n"
+        + "\n\n".join(visual_lines)
+        + "\n\n"
+        + footer
+    )
+
+
+def write_private_stage_brief(session: Path, manifest: dict[str, Any]) -> Path:
+    path = session / "stage-brief.md"
+    path.write_text(
+        render_stage_brief(manifest, list(manifest.get("assets", []))), encoding="utf-8"
+    )
+    return path
+
+
+def share_stage(
+    root: Path,
+    session: Path,
+    manifest: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    if manifest.get("capture_window", {}).get("status") != "closed":
+        raise SystemExit("Close the phase before preparing a shared stage package.")
+    history = config.get("project_history", {})
+    if not history.get("enabled", False):
+        raise SystemExit("Project history is disabled. Run `enable` for this named project first.")
+    report = audit_session(session)
+    if not report.get("release_ready", False):
+        raise SystemExit("Privacy audit blocked this stage package; review privacy-report.json first.")
+
+    base = project_history_root(root, config, create=True)
+    initiative_dir = base / slugify(str(manifest.get("initiative") or "project"))
+    package = initiative_dir / session.name
+    if initiative_dir.is_symlink() or package.is_symlink():
+        raise SystemExit("Project history package must not be a symlink.")
+    try:
+        package.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise SystemExit("Project history package must stay inside the project.") from exc
+    package.mkdir(parents=True, exist_ok=True)
+
+    copied_assets: list[str] = []
+    session_root = session.resolve()
+    for raw in manifest.get("assets", []):
+        relative = Path(str(raw))
+        if relative.is_absolute() or not relative.parts or relative.parts[0] != "assets" or ".." in relative.parts:
+            raise SystemExit(f"Invalid session asset path: {raw}")
+        source = session / relative
+        if source.is_symlink() or not source.is_file():
+            raise SystemExit(f"Session asset is missing or unsafe: {raw}")
+        try:
+            source.resolve().relative_to(session_root)
+        except ValueError as exc:
+            raise SystemExit(f"Session asset escapes its session: {raw}") from exc
+        target = package / relative
+        current = package
+        for part in relative.parts[:-1]:
+            current = current / part
+            if current.is_symlink():
+                raise SystemExit(f"Project history asset directory is a symlink: {current}")
+        if target.is_symlink():
+            raise SystemExit(f"Project history asset target is a symlink: {target}")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        copied_assets.append(relative.as_posix())
+
+    (package / "README.md").write_text(
+        render_stage_brief(manifest, copied_assets, reviewed=True), encoding="utf-8"
+    )
+    manifest["project_history"] = {
+        "prepared_at": now_iso(),
+        "directory": str(package.relative_to(root)),
+        "asset_count": len(copied_assets),
+        "confirmed_for_project_history": True,
+        "uploaded": False,
+        "committed": False,
+    }
+    save_manifest(session, manifest)
+    return {
+        "status": "prepared",
+        "package": str(package),
+        "asset_count": len(copied_assets),
+        "committed": False,
+        "pushed": False,
+        "uploaded": False,
+    }
+
+
 def remember_event(
     session: Path,
     manifest: dict[str, Any],
@@ -726,6 +953,8 @@ def remember_event(
     novelty_key: str,
     claims: list[str],
     evidence_refs: list[str],
+    assets: list[str],
+    max_events: int,
     force: bool,
 ) -> dict[str, Any]:
     window = manifest.get("capture_window", {})
@@ -739,17 +968,41 @@ def remember_event(
     captured_at = now_iso()
     for event in events:
         if event.get("dedupe_identity") == identity:
+            copied_assets = copy_assets(session, event_type, assets)
             event["occurrence_count"] = int(event.get("occurrence_count", 1)) + 1
             event["last_seen_at"] = captured_at
-            for field, additions in (("claims", claims), ("evidence_refs", evidence_refs)):
+            for field, additions in (
+                ("claims", claims),
+                ("evidence_refs", evidence_refs),
+                ("assets", copied_assets),
+            ):
                 existing = event.setdefault(field, [])
                 existing_keys = {normalize_key(str(item)) for item in existing}
                 for addition in additions:
                     if normalize_key(addition) not in existing_keys:
                         existing.append(sanitize(addition))
                         existing_keys.add(normalize_key(addition))
+            manifest.setdefault("assets", []).extend(copied_assets)
+            for stage in manifest.setdefault("stages", []):
+                if stage.get("event_id") == event.get("event_id"):
+                    stage.setdefault("assets", []).extend(copied_assets)
+                    break
             save_manifest(session, manifest)
-            return {"action": "folded", "event_id": event["event_id"], "occurrence_count": event["occurrence_count"]}
+            return {
+                "action": "folded",
+                "event_id": event["event_id"],
+                "occurrence_count": event["occurrence_count"],
+                "assets": copied_assets,
+            }
+    if max_events > 0 and len(events) >= max_events and not force:
+        return {
+            "action": "skipped",
+            "reason": "event_budget_reached",
+            "event_count": len(events),
+            "max_events_per_phase": max_events,
+            "ask_only_if_critical": True,
+        }
+    copied_assets = copy_assets(session, event_type, assets)
     event_id = f"event-{len(events) + 1:03d}"
     event = {
         "event_id": event_id,
@@ -760,6 +1013,7 @@ def remember_event(
         "occurrence_count": 1,
         "claims": [sanitize(item) for item in claims],
         "evidence_refs": [sanitize(item) for item in evidence_refs],
+        "assets": copied_assets,
         "captured_at": captured_at,
         "last_seen_at": captured_at,
     }
@@ -771,18 +1025,23 @@ def remember_event(
             "notes": event["notes"],
             "decision": event["claims"][0] if event["claims"] else "",
             "evidence": {},
-            "assets": [],
+            "assets": copied_assets,
             "captured_at": captured_at,
             "event_id": event_id,
         }
     )
+    manifest.setdefault("assets", []).extend(copied_assets)
     save_manifest(session, manifest)
     append_timeline(
         session,
         f"{captured_at} · {event_type}",
-        [("Notes", event["notes"]), ("Novelty key", event["novelty_key"])],
+        [
+            ("Notes", event["notes"]),
+            ("Novelty key", event["novelty_key"]),
+            ("Assets", ", ".join(copied_assets) or "—"),
+        ],
     )
-    return {"action": "recorded", "event_id": event_id, "occurrence_count": 1}
+    return {"action": "recorded", "event_id": event_id, "occurrence_count": 1, "assets": copied_assets}
 
 
 AUDIT_PATTERNS: tuple[tuple[str, str, re.Pattern[str]], ...] = (
@@ -825,9 +1084,14 @@ def audit_session(session: Path) -> dict[str, Any]:
         "audited_at": now_iso(),
         "release_ready": high == 0,
         "manual_asset_review_required": bool(assets),
+        "asset_review_gate": "final_content" if assets else "none",
+        "visual_review_at_content_gate": bool(assets),
         "assets": assets,
         "findings": findings,
-        "note": "Best-effort text scan only. Review every asset and the final Git history manually.",
+        "note": (
+            "Best-effort text scan only. Visual assets are reviewed in the finished content, "
+            "not approved one by one. Review the final Git history before publication."
+        ),
     }
     (session / "privacy-report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -1040,6 +1304,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="action", required=True)
 
     sub.add_parser("setup", help="Create a safe project configuration and ignore local journals")
+    enable = sub.add_parser("enable", help="Explicitly enable lightweight capture for this project")
+    enable.add_argument("--history-dir", default="docs/project-history")
+    sub.add_parser("disable", help="Pause capture for this project without deleting existing records")
 
     suggest = sub.add_parser("suggest-start", help="Deterministically route an assisted-auto start")
     suggest.add_argument("--title", required=True)
@@ -1081,6 +1348,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember.add_argument("--novelty-key", required=True)
     remember.add_argument("--claim", action="append", default=[])
     remember.add_argument("--evidence-ref", action="append", default=[])
+    remember.add_argument("--asset", action="append", default=[])
     remember.add_argument("--force", action="store_true")
 
     pause = sub.add_parser("pause", help="Pause automatic capture without ending the phase")
@@ -1095,6 +1363,10 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--result", required=True)
     close.add_argument("--lesson", default="")
     close.add_argument("--handoff", action="store_true")
+
+    share = sub.add_parser("share-stage", help="Prepare a reviewed, Git-friendly stage package locally")
+    share.add_argument("--session")
+    share.add_argument("--confirmed", action="store_true")
 
     archive_only = sub.add_parser("archive-only", help="Mark a session as never recommended for publication")
     archive_only.add_argument("--session")
@@ -1139,6 +1411,54 @@ def main() -> int:
     if args.action == "setup":
         path = setup_project(root)
         print(path)
+        return 0
+
+    if args.action == "enable":
+        setup_project(root)
+        config = load_config(root)
+        config.setdefault("capture", {}).update(mode="assisted-auto", auto_start=True)
+        config["capture"].setdefault("max_events_per_phase", 4)
+        config.setdefault("project_history", {}).update(
+            enabled=True,
+            directory=args.history_dir,
+            requires_stage_confirmation=True,
+            auto_commit=False,
+            auto_push=False,
+            auto_upload=False,
+        )
+        history_root = project_history_root(root, config)
+        save_json(root / CONFIG_FILE, config)
+        print(
+            json.dumps(
+                {
+                    "mode": "assisted-auto",
+                    "history_directory": str(history_root.relative_to(root)),
+                    "max_events_per_phase": config["capture"]["max_events_per_phase"],
+                    "committed": False,
+                    "pushed": False,
+                    "uploaded": False,
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 0
+
+    if args.action == "disable":
+        setup_project(root)
+        config = load_config(root)
+        config.setdefault("capture", {}).update(mode="off", auto_start=False)
+        save_json(root / CONFIG_FILE, config)
+        print(
+            json.dumps(
+                {
+                    "mode": "off",
+                    "existing_records_preserved": True,
+                    "project_history_preserved": True,
+                    "deleted": False,
+                },
+                ensure_ascii=False,
+            )
+        )
         return 0
 
     if args.action == "suggest-start" and not (root / CONFIG_FILE).exists():
@@ -1207,11 +1527,12 @@ def main() -> int:
         return 0
 
     if args.action == "start":
+        start_config = config
         if mode == "off":
-            raise SystemExit("Capture mode is off. Change .haostory.json before starting a session.")
+            start_config = deep_merge(config, {"capture": {"mode": "manual"}})
         session = create_capture_session(
             root,
-            config,
+            start_config,
             title=args.title,
             summary=args.summary,
             work_type=args.type,
@@ -1244,6 +1565,14 @@ def main() -> int:
     else:
         session = resolve_session(root, getattr(args, "session", None))
     manifest = load_manifest(session)
+
+    if args.action == "share-stage":
+        if not args.confirmed:
+            raise SystemExit(
+                "share-stage copies reviewed materials into the project history; pass --confirmed after stage-level review."
+            )
+        print(json.dumps(share_stage(root, session, manifest, config), ensure_ascii=False))
+        return 0
 
     if args.action == "archive-only":
         marked_at = now_iso()
@@ -1319,6 +1648,8 @@ def main() -> int:
             novelty_key=args.novelty_key,
             claims=args.claim,
             evidence_refs=args.evidence_ref,
+            assets=args.asset,
+            max_events=int(capture_config.get("max_events_per_phase", 4)),
             force=args.force,
         )
         print(json.dumps(result, ensure_ascii=False))
@@ -1406,6 +1737,25 @@ def main() -> int:
             f"{closed_at} · close phase",
             [("Result", args.result), ("Reason", window["close_reason"])],
         )
+        report = audit_session(session)
+        novelty = check_registry(manifest, load_registry(root, config))
+        plan = build_story_plan(manifest, novelty, config)
+        readiness = build_content_readiness(manifest, plan, report)
+        readiness["project_history_requires_confirmation"] = True
+        readiness["project_history_enabled"] = bool(
+            config.get("project_history", {}).get("enabled", False)
+        )
+        if readiness["project_history_enabled"]:
+            readiness["options"].append("prepare_project_history")
+        manifest["content_readiness"] = readiness
+        stage_brief = write_private_stage_brief(session, manifest)
+        save_manifest(session, manifest)
+        response_readiness = dict(readiness)
+        response_readiness["assets_path"] = str(session / "assets")
+        response_readiness["prompt"] = (
+            f"Phase complete. Assets are in {session / 'assets'}. "
+            "Produce video, article, both, archive, or prepare a reviewed project-history package?"
+        )
         print(
             json.dumps(
                 {
@@ -1413,7 +1763,15 @@ def main() -> int:
                     "session": str(session),
                     "published": False,
                     "exported": False,
+                    "content_generated": False,
                     "reason": window["close_reason"],
+                    "stage_brief": str(stage_brief),
+                    "project_history_next_action": {
+                        "command": "share-stage",
+                        "session": session.name,
+                        "requires_confirmation": True,
+                    },
+                    "content_readiness": response_readiness,
                 },
                 ensure_ascii=False,
             )

@@ -129,6 +129,7 @@ class HaoStoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             project = self.make_project(Path(temp))
             self.run_cli(project, "setup")
+            self.run_cli(project, "enable")
             result = self.run_cli(
                 project,
                 "suggest-start",
@@ -206,6 +207,14 @@ class HaoStoryTests(unittest.TestCase):
 
             config_path = Path(self.run_cli(project, "setup").stdout.strip())
             config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["capture"]["mode"], "off")
+            self.assertFalse(config["capture"]["auto_start"])
+            self.assertFalse(config["capture"]["assets_require_confirmation"])
+            self.assertTrue(config["visual_capture"]["enabled"])
+            self.assertTrue(config["visual_capture"]["production_requires_request"])
+            config["capture"]["assets_require_confirmation"] = True
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            self.assertFalse(MODULE.load_config(project)["capture"]["assets_require_confirmation"])
             config["capture"]["mode"] = "manual"
             config_path.write_text(json.dumps(config), encoding="utf-8")
             manual = self.run_cli(
@@ -234,6 +243,227 @@ class HaoStoryTests(unittest.TestCase):
                 "build",
             )
             self.assertEqual(json.loads(disabled.stdout)["action"], "ignore")
+
+    def test_project_must_be_explicitly_enabled_and_can_be_paused_again(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            config_path = Path(self.run_cli(project, "setup").stdout.strip())
+
+            before = json.loads(
+                self.run_cli(
+                    project,
+                    "suggest-start",
+                    "--title",
+                    "A meaningful stage",
+                    "--initiative",
+                    "opt-in",
+                    "--phase",
+                    "build",
+                ).stdout
+            )
+            self.assertEqual(before["action"], "ignore")
+
+            enabled = json.loads(
+                self.run_cli(
+                    project,
+                    "enable",
+                    "--history-dir",
+                    "docs/progress",
+                ).stdout
+            )
+            self.assertEqual(enabled["mode"], "assisted-auto")
+            self.assertEqual(enabled["history_directory"], "docs/progress")
+            self.assertFalse(enabled["uploaded"])
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["capture"]["mode"], "assisted-auto")
+            self.assertTrue(config["capture"]["auto_start"])
+            self.assertEqual(config["capture"]["max_events_per_phase"], 4)
+            self.assertTrue(config["project_history"]["enabled"])
+
+            disabled = json.loads(self.run_cli(project, "disable").stdout)
+            self.assertEqual(disabled["mode"], "off")
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["capture"]["mode"], "off")
+            self.assertFalse(config["capture"]["auto_start"])
+            self.assertTrue(config["project_history"]["enabled"])
+
+    def test_project_history_directory_cannot_escape_or_enter_private_control_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            outside = project.parent / "outside-history"
+            for unsafe in ("../outside-history", ".git/story", ".haostory/shared", str(outside)):
+                result = self.run_cli(
+                    project,
+                    "enable",
+                    "--history-dir",
+                    unsafe,
+                    expected=1,
+                )
+                self.assertIn("history", result.stderr.lower())
+            self.assertFalse(outside.exists())
+
+    def test_lightweight_event_budget_folds_duplicates_and_requires_force_for_exception(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Keep only decisive moments",
+                    "--initiative",
+                    "lightweight",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            for index in range(4):
+                self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "decision",
+                    "--notes",
+                    f"Decisive event {index}",
+                    "--novelty-key",
+                    f"decision-{index}",
+                )
+            folded = json.loads(
+                self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "decision",
+                    "--notes",
+                    "The same decision was reconfirmed.",
+                    "--novelty-key",
+                    "decision-0",
+                ).stdout
+            )
+            self.assertEqual(folded["action"], "folded")
+
+            skipped = json.loads(
+                self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "milestone",
+                    "--notes",
+                    "A routine extra event.",
+                    "--novelty-key",
+                    "routine-extra",
+                ).stdout
+            )
+            self.assertEqual(skipped["action"], "skipped")
+            self.assertEqual(skipped["reason"], "event_budget_reached")
+            self.assertTrue(skipped["ask_only_if_critical"])
+
+            forced = json.loads(
+                self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "recovery",
+                    "--notes",
+                    "A critical recovery worth preserving.",
+                    "--novelty-key",
+                    "critical-recovery",
+                    "--force",
+                ).stdout
+            )
+            self.assertEqual(forced["action"], "recorded")
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(manifest["events"]), 5)
+
+    def test_share_stage_prepares_reviewed_git_friendly_materials_without_uploading(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            self.run_cli(project, "enable", "--history-dir", "docs/project-history")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "First useful demo",
+                    "--summary",
+                    "Prove the smallest useful result.",
+                    "--initiative",
+                    "demo-flow",
+                    "--phase",
+                    "validate",
+                ).stdout.strip()
+            )
+            asset = project / "stable-demo.png"
+            asset.write_bytes(b"reviewed-image")
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "The first stable result worked on 192.168.1.2.",
+                "--novelty-key",
+                "stable-demo",
+                "--claim",
+                "The smallest useful flow is now demonstrable.",
+                "--evidence-ref",
+                "test:demo-flow",
+                "--asset",
+                str(asset),
+            )
+            self.run_cli(
+                project,
+                "close-phase",
+                "--session",
+                session.name,
+                "--result",
+                "The stage passed validation.",
+                "--lesson",
+                "Keep only evidence that explains the result.",
+            )
+            unconfirmed = self.run_cli(
+                project,
+                "share-stage",
+                "--session",
+                session.name,
+                expected=1,
+            )
+            self.assertIn("--confirmed", unconfirmed.stderr)
+
+            shared = json.loads(
+                self.run_cli(
+                    project,
+                    "share-stage",
+                    "--session",
+                    session.name,
+                    "--confirmed",
+                ).stdout
+            )
+            package = Path(shared["package"])
+            self.assertTrue(package.is_relative_to(project.resolve()))
+            self.assertTrue((package / "README.md").exists())
+            self.assertEqual((package / "assets" / "demo" / "stable-demo.png").read_bytes(), b"reviewed-image")
+            article_material = (package / "README.md").read_text(encoding="utf-8")
+            self.assertIn("The stage passed validation.", article_material)
+            self.assertIn("The first stable result worked", article_material)
+            self.assertNotIn("192.168.1.2", article_material)
+            self.assertIn("<private-ip-redacted>", article_material)
+            self.assertIn("assets/demo/stable-demo.png", article_material)
+            self.assertFalse(shared["uploaded"])
+            self.assertFalse(shared["committed"])
+            self.assertFalse((package / ".git").exists())
 
     def test_omitted_session_requires_one_active_window(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -704,12 +934,12 @@ class HaoStoryTests(unittest.TestCase):
             self.assertNotIn("excluded", json.dumps(manifest["events"]))
             self.assertIn("resumed", json.dumps(manifest["events"]))
 
-    def test_visual_assets_require_explicit_checkpoint_selection(self) -> None:
+    def test_remember_stores_visual_assets_directly_without_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             project = self.make_project(Path(temp))
             self.run_cli(project, "setup")
             asset = project / "demo.png"
-            asset.write_bytes(b"not-a-real-image")
+            asset.write_bytes(b"first-stable-frame")
             session = Path(
                 self.run_cli(
                     project,
@@ -722,29 +952,64 @@ class HaoStoryTests(unittest.TestCase):
                     "build",
                 ).stdout.strip()
             )
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SCRIPT),
-                    "remember",
-                    "--session",
-                    session.name,
-                    "--event",
-                    "demo",
-                    "--notes",
-                    "Do not copy the asset automatically.",
-                    "--novelty-key",
-                    "asset-demo",
-                    "--asset",
-                    str(asset),
-                ],
-                cwd=project,
-                text=True,
-                capture_output=True,
-                check=False,
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "Save the stable desktop result directly.",
+                "--novelty-key",
+                "asset-demo",
+                "--asset",
+                str(asset),
             )
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse(list((session / "assets").rglob("*.png")))
+            asset.write_bytes(b"second-stable-frame")
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "Save the stable mobile result directly.",
+                "--novelty-key",
+                "asset-demo",
+                "--asset",
+                str(asset),
+            )
+            copied = sorted((session / "assets" / "demo").glob("*.png"))
+            self.assertEqual(len(copied), 2)
+            self.assertEqual({path.read_bytes() for path in copied}, {b"first-stable-frame", b"second-stable-frame"})
+            self.assertFalse((session / "candidates").exists())
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            event = manifest["events"][0]
+            self.assertEqual(event["occurrence_count"], 2)
+            self.assertEqual(len(event["assets"]), 2)
+            self.assertEqual(len(manifest["assets"]), 2)
+
+            sensitive = project / "secret-screen.png"
+            sensitive.write_bytes(b"sensitive")
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "Never save a sensitive-looking path.",
+                "--novelty-key",
+                "sensitive-asset",
+                "--asset",
+                str(sensitive),
+                expected=1,
+            )
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertNotIn("sensitive-asset", json.dumps(manifest))
 
     def test_handoff_close_does_not_export_publish_or_register(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -762,6 +1027,26 @@ class HaoStoryTests(unittest.TestCase):
                     "build",
                 ).stdout.strip()
             )
+            asset = project / "phase-result.png"
+            asset.write_bytes(b"stable-phase-result")
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "The stage has a stable visual result.",
+                "--novelty-key",
+                "phase-result",
+                "--claim",
+                "The phase produced a runnable result.",
+                "--evidence-ref",
+                "demo:phase-result",
+                "--asset",
+                str(asset),
+            )
             closed = self.run_cli(
                 project,
                 "close-phase",
@@ -774,7 +1059,21 @@ class HaoStoryTests(unittest.TestCase):
             result = json.loads(closed.stdout)
             self.assertEqual(result["status"], "closed")
             self.assertFalse(result["published"])
+            self.assertFalse(result["content_generated"])
+            readiness = result["content_readiness"]
+            self.assertEqual(readiness["asset_count"], 1)
+            self.assertEqual(readiness["assets_path"], str(session / "assets"))
+            self.assertTrue(readiness["production_requires_request"])
+            self.assertEqual(readiness["recommended_route"], "standalone_story")
+            self.assertIn("video", readiness["prompt"])
+            self.assertIn("article", readiness["prompt"])
             self.assertFalse((session / "exports").exists())
+            self.assertTrue((session / "privacy-report.json").exists())
+            report = json.loads((session / "privacy-report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["asset_review_gate"], "final_content")
+            self.assertTrue(report["visual_review_at_content_gate"])
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["content_readiness"]["asset_count"], 1)
             registry = json.loads((project / ".haostory" / "story-registry.json").read_text(encoding="utf-8"))
             self.assertEqual(registry["published_stories"], [])
 

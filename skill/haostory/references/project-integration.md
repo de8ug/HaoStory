@@ -1,11 +1,11 @@
 # Project integration
 
-Installing a global Skill makes HaoStory available, but does not guarantee that every unrelated session will invoke it. Add a short instruction to the target repository's `AGENTS.md` or equivalent project instruction file:
+Installing a global Skill only makes HaoStory available. It must remain paused until the user explicitly enables it for a named project. Run `setup`, then `enable --history-dir <project-relative-directory>` only after that opt-in. Add a short instruction to the target repository's `AGENTS.md` or equivalent project instruction file:
 
 ```markdown
 ## HaoStory
 
-For meaningful development, product, content, or research work, use the `haostory` Skill in the mode configured by `.haostory.json`. In assisted-auto mode, announce every local start/resume/pause/close, capture only high-confidence observable events, keep visual assets human-selected, check story memory before export, and keep `.haostory/` local unless reviewed for publication.
+HaoStory is opt-in and follows `.haostory.json`. When enabled, announce lifecycle changes, keep at most a few decisive events per phase, save stable key screenshots directly into private session assets, and ask only when an important capture choice is genuinely ambiguous. `close-phase` creates a private brief. Use `share-stage --confirmed` only after phase-level review to prepare a concise package in the configured project history. Never commit, push, upload, produce final content, or publish without a separate request.
 ```
 
 Keep the instruction short. Do not duplicate the full Skill inside every project.
@@ -16,6 +16,10 @@ Pass a stable initiative ID and one of `discovery`, `design`, `build`, `validate
 
 Use `suggest-start --work-kind formatting|dependency|simple-fix|consulting|rename` for deterministic exclusions. The command returns JSON and does not start a capture for those routine tasks. In `manual` mode it only suggests a start; in `off` mode it ignores the task.
 
+The default event budget is four distinct events per phase. Repeated `event type + novelty_key` values fold into one event. When the budget is full, `remember` returns `event_budget_reached`; use `--force` only for an exceptional moment that would materially change the later story. If importance is uncertain, ask one focused question rather than starting a broader interview.
+
 Pass `--session` whenever more than one active or paused window exists. Never select a window by directory order. Session IDs are direct child names, and both sessions and the story registry must remain inside the project's non-symlinked `.haostory/` directory.
 
-No integration may read hidden reasoning, run as a background recorder, scan a screen, copy visual assets, inspect private chats, or publish automatically.
+Private raw capture stays under ignored `.haostory/`. A confirmed stage package goes under `project_history.directory`, which must be a non-symlinked path inside the project and outside `.git/` and `.haostory/`. This makes it possible for the user's ordinary version-control workflow to sync reviewed materials across devices, but HaoStory itself never stages, commits, pushes, uploads, or publishes them.
+
+No integration may read hidden reasoning, run as a background recorder, inspect unrelated screens or private chats, generate content before the user asks, or publish automatically. Targeted screenshots of the current task are allowed only at meaningful visual events and must follow `privacy.md`.

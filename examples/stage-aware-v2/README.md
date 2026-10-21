@@ -1,9 +1,11 @@
 # Stage-aware V2 demo
 
-This local-only demo exercises two phases without publishing or copying visual assets.
+This demo explicitly enables lightweight capture, exercises two phases, and prepares one reviewed project-history package without committing, uploading, or publishing it.
 
 ```bash
 python3 skill/haostory/scripts/haostory.py setup
+python3 skill/haostory/scripts/haostory.py enable \
+  --history-dir docs/project-history
 
 python3 skill/haostory/scripts/haostory.py suggest-start \
   --session demo-build \
@@ -25,13 +27,19 @@ python3 skill/haostory/scripts/haostory.py remember \
   --event recovery \
   --notes "A lifecycle-state fix made the test pass." \
   --novelty-key lifecycle-exit-1 \
-  --evidence-ref test:lifecycle-pass
+  --evidence-ref test:lifecycle-pass \
+  --asset /tmp/stable-recovery.png
 
 python3 skill/haostory/scripts/haostory.py close-phase \
   --session demo-build \
   --result "The build is runnable and ready for validation." \
   --lesson "Lifecycle behavior must be verified across phases." \
   --handoff
+
+# Run only after reviewing the whole phase and its selected screenshot.
+python3 skill/haostory/scripts/haostory.py share-stage \
+  --session demo-build \
+  --confirmed
 
 python3 skill/haostory/scripts/haostory.py start \
   --session demo-validate \
@@ -57,10 +65,13 @@ python3 skill/haostory/scripts/haostory.py audit --session demo-validate
 Expected result:
 
 - build and validate are independent capture windows under the same initiative;
+- each phase normally retains no more than four distinct events;
 - validate contains `necessary_context.source_session: demo-build`;
 - three equal failures fold into one event, while recovery remains separate;
-- closing on handoff does not create exports, publish, or update the registry;
+- the stable recovery screenshot is copied directly into `demo-build/assets/recovery/` without a candidates queue;
+- closing on handoff writes a private stage brief and reports the assets location, but does not create exports, commit, upload, publish, or update the registry;
+- `share-stage` copies the reviewed brief and screenshot into `docs/project-history/capture-v2/demo-build/` for a later user-controlled Git operation;
 - the validate story plan identifies the new claim and evidence;
 - no visual asset is copied and the text privacy audit passes.
 
-`registry publish` is intentionally absent: it only records a real publication after human confirmation.
+`git commit`, `git push`, upload, and `registry publish` are intentionally absent. Each requires a separate user decision.
