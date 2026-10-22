@@ -45,20 +45,21 @@ HaoStory V2 按 Project → Initiative → Phase → Capture Window → Event �
 
 在 assisted-auto 工作过程中，Agent 会把关键失败、恢复、前后对比、里程碑和 Demo 的稳定截图直接保存到私有会话 `assets/`。不建立候选清单，也不逐张确认。只有某个重要取舍确实无法判断时，才向用户提出一个简短问题，不做连续访谈。
 
-阶段结束时会生成一份简短的私有阶段材料并报告位置。经过一次阶段级确认后，`share-stage --confirmed` 可以把精简 Markdown 和已选图片放进项目指定目录，供用户后续通过普通 Git 流程跨设备读取。HaoStory 自身不会 commit、push、上传或发布；制作文章、视频成品仍需单独请求。
+阶段结束时会生成一份简短的私有阶段材料并报告位置。经过一次阶段级确认后，`share-stage --confirmed` 会更新一份项目进展文档，并把最多三张关键截图放入按日期组织的目录。每张截图都带简短说明和 `real`、`demo` 或 `mixed` 数据标签。对于软件项目，它还会核对 README 是否包含启动方式和运行地址，并返回建议与代码一起提交的文件清单。HaoStory 自身不会改 README、commit、push、上传或发布；制作文章、视频成品仍需单独请求。
 
 省略 `--session` 时，HaoStory 只会选择唯一的 active/paused 窗口；存在多个候选时明确报错，没有活跃窗口时按 manifest 的 `updated_at` 选择最新 V1 会话。普通 session ID 和 registry 路径不能逃出项目内非符号链接的 `.haostory/`。
 
 ## 快速开始
 
-私有原始记录保存在 Git 忽略的 `.haostory/`；经过阶段级确认的精简材料默认可准备到 `docs/project-history/<initiative>/<session>/`。后者是否提交或同步仍由用户另行决定。
+私有原始记录保存在 Git 忽略的 `.haostory/`；经过阶段级确认的精简材料默认更新到 `docs/progress.md` 和 `docs/screenshots/YYYY-MM-DD/`。建议和它所说明的代码改动放在同一次提交中，但是否提交或同步仍由用户另行决定。
 
 把 `skill/haostory` 复制到你的 Agent Skill 目录，或者让 Agent 直接阅读仓库中的 `SKILL.md`。
 
 ```bash
 python3 skill/haostory/scripts/haostory.py setup
 python3 skill/haostory/scripts/haostory.py enable \
-  --history-dir docs/project-history
+  --progress-file docs/progress.md \
+  --screenshots-dir docs/screenshots
 # assisted-auto 路由（与下面的显式 start 二选一）
 python3 skill/haostory/scripts/haostory.py suggest-start \
   --title "实现分阶段采集" \
@@ -77,11 +78,13 @@ python3 skill/haostory/scripts/haostory.py remember \
   --event demo \
   --notes "稳定后的桌面端结果" \
   --novelty-key stable-demo \
-  --asset /tmp/stable-demo.png
+  --asset /tmp/stable-demo.png \
+  --data-kind demo
 python3 skill/haostory/scripts/haostory.py pause --reason "这段不记录"
 python3 skill/haostory/scripts/haostory.py resume
 python3 skill/haostory/scripts/haostory.py close-phase \
   --result "构建阶段已可进入验证" \
+  --todo "使用真实数据验证移动端流程" \
   --handoff
 python3 skill/haostory/scripts/haostory.py share-stage \
   --confirmed
@@ -98,7 +101,7 @@ python3 skill/haostory/scripts/haostory.py export
 python3 skill/haostory/scripts/haostory.py disable
 ```
 
-阶段结束不会自动生成内容、改变 Git 历史、上传文件或发布。下一步操作前必须查看隐私报告、阶段素材包，并验收最终视频或文章。
+阶段结束不会自动生成内容、改变 Git 历史、上传文件或发布。下一步操作前必须查看隐私报告、阶段记录，并验收最终视频或文章。
 
 ### V1 兼容
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -35,6 +36,7 @@ HIGH_CONFIDENCE_EVENTS = (
     "external_signal",
 )
 WORK_KINDS = ("meaningful", "formatting", "dependency", "simple-fix", "consulting", "rename")
+DATA_KINDS = ("real", "demo", "mixed", "unspecified")
 AUTO_START_EXCLUSIONS = {"formatting", "dependency", "simple-fix", "consulting", "rename"}
 SENSITIVE_PATH_PARTS = (
     ".env",
@@ -95,7 +97,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "project_history": {
         "enabled": False,
-        "directory": "docs/project-history",
+        "directory": "docs",
+        "progress_file": "docs/progress.md",
+        "screenshots_directory": "docs/screenshots",
         "requires_stage_confirmation": True,
         "auto_commit": False,
         "auto_push": False,
@@ -157,6 +161,13 @@ def load_config(root: Path) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"Invalid {CONFIG_FILE}: {exc}") from exc
     merged = deep_merge(DEFAULT_CONFIG, custom)
+    custom_history = custom.get("project_history", {})
+    if "directory" in custom_history:
+        legacy_base = Path(str(custom_history["directory"]))
+        if "progress_file" not in custom_history:
+            merged["project_history"]["progress_file"] = str(legacy_base / "progress.md")
+        if "screenshots_directory" not in custom_history:
+            merged["project_history"]["screenshots_directory"] = str(legacy_base / "screenshots")
     # V2.1 moved review from individual local assets to the final content gate.
     # Keep the legacy key deterministic even in projects created by earlier versions.
     merged.setdefault("capture", {})["assets_require_confirmation"] = False
@@ -260,28 +271,58 @@ def project_journal(root: Path, create: bool = False) -> Path:
     return journal
 
 
-def project_history_root(
-    root: Path, config: dict[str, Any], *, create: bool = False
+def project_output_path(
+    root: Path, raw_value: str, *, label: str, create_directory: bool = False
 ) -> Path:
-    raw = str(config.get("project_history", {}).get("directory", "docs/project-history")).strip()
+    raw = str(raw_value).strip()
     candidate = Path(raw)
     if not raw or candidate.is_absolute() or raw in {".", ".."}:
-        raise SystemExit("Project history directory must be a non-empty project-relative path.")
+        raise SystemExit(f"{label} must be a non-empty project-relative path.")
     if any(part in {"..", ".git", JOURNAL_DIR} for part in candidate.parts):
-        raise SystemExit("Project history must stay outside .git/ and .haostory/ inside the project.")
+        raise SystemExit(f"{label} must stay outside .git/ and .haostory/ inside the project.")
     current = root
     for part in candidate.parts:
         current = current / part
         if current.is_symlink():
-            raise SystemExit("Project history directory must not contain symlinks.")
+            raise SystemExit(f"{label} must not contain symlinks.")
     resolved = (root / candidate).resolve()
     try:
         resolved.relative_to(root.resolve())
     except ValueError as exc:
-        raise SystemExit("Project history directory must stay inside the project.") from exc
-    if create:
+        raise SystemExit(f"{label} must stay inside the project.") from exc
+    if create_directory:
         resolved.mkdir(parents=True, exist_ok=True)
     return resolved
+
+
+def project_history_paths(
+    root: Path, config: dict[str, Any], *, create: bool = False
+) -> tuple[Path, Path]:
+    history = config.get("project_history", {})
+    progress = project_output_path(
+        root,
+        str(history.get("progress_file", "docs/progress.md")),
+        label="Project progress file",
+    )
+    screenshots = project_output_path(
+        root,
+        str(history.get("screenshots_directory", "docs/screenshots")),
+        label="Project screenshots directory",
+        create_directory=create,
+    )
+    if create:
+        progress.parent.mkdir(parents=True, exist_ok=True)
+    return progress, screenshots
+
+
+def project_history_root(
+    root: Path, config: dict[str, Any], *, create: bool = False
+) -> Path:
+    """Compatibility helper for callers that still inspect the legacy directory."""
+    raw = str(config.get("project_history", {}).get("directory", "docs")).strip()
+    return project_output_path(
+        root, raw, label="Project history directory", create_directory=create
+    )
 
 
 def setup_project(root: Path) -> Path:
@@ -836,7 +877,7 @@ def render_stage_brief(
     footer = (
         "> 这是经过阶段级确认的素材包，不是已发布文章。对外使用前仍需再次核对表述与隐私。\n"
         if reviewed
-        else "> 这是私有工作摘要。复制到项目历史目录前，请先完成阶段级检查。\n"
+        else "> 这是私有工作摘要。写入项目进展记录前，请先完成阶段级检查。\n"
     )
     return (
         f"# {project_history_text(str(manifest.get('title', 'Project stage')))}\n\n"
@@ -871,11 +912,123 @@ def write_private_stage_brief(session: Path, manifest: dict[str, Any]) -> Path:
     return path
 
 
+def replace_marked_block(path: Path, marker: str, block: str, heading: str) -> None:
+    start = f"<!-- haostory:{marker}:start -->"
+    end = f"<!-- haostory:{marker}:end -->"
+    rendered = f"{start}\n{block.strip()}\n{end}"
+    if path.exists():
+        current = path.read_text(encoding="utf-8")
+    else:
+        current = f"# {heading}\n"
+    pattern = re.compile(re.escape(start) + r".*?" + re.escape(end), re.DOTALL)
+    if pattern.search(current):
+        updated = pattern.sub(lambda _: rendered, current)
+    else:
+        updated = current.rstrip() + "\n\n" + rendered + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(updated.rstrip() + "\n", encoding="utf-8")
+
+
+def stage_date(manifest: dict[str, Any]) -> str:
+    value = str(
+        manifest.get("capture_window", {}).get("closed_at")
+        or manifest.get("finished_at")
+        or now_iso()
+    )
+    match = re.match(r"^(\d{4}-\d{2}-\d{2})", value)
+    return match.group(1) if match else datetime.now().astimezone().date().isoformat()
+
+
+def event_asset_metadata(manifest: dict[str, Any]) -> dict[str, dict[str, str]]:
+    metadata: dict[str, dict[str, str]] = {}
+    for event in manifest.get("events", []):
+        for asset in event.get("assets", []):
+            metadata[str(asset)] = {
+                "caption": project_history_text(str(event.get("notes", ""))).strip(),
+                "data_kind": str(event.get("data_kind", "unspecified")),
+            }
+    return metadata
+
+
+def inspect_project_readme(root: Path) -> dict[str, Any]:
+    path = root / "README.md"
+    if not path.is_file():
+        return {
+            "path": None,
+            "startup_documented": False,
+            "runtime_url_documented": False,
+            "recommendations": ["Add a README with startup instructions and the runtime URL."],
+        }
+    text = path.read_text(encoding="utf-8", errors="replace")
+    startup = bool(
+        re.search(
+            r"(?:npm|pnpm|yarn|python(?:3)?|uvicorn|docker|make)\s+[\w.:-]+|启动|quick\s*start|getting\s*started",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    runtime_url = bool(
+        re.search(r"https?://(?:localhost|127\.0\.0\.1|\[[0-9a-f:]+\]|[^\s)]+)", text, re.IGNORECASE)
+    )
+    recommendations: list[str] = []
+    if not startup:
+        recommendations.append("Document the startup command in README.md.")
+    if not runtime_url:
+        recommendations.append("Document the runtime or preview URL in README.md.")
+    return {
+        "path": str(path.relative_to(root)),
+        "startup_documented": startup,
+        "runtime_url_documented": runtime_url,
+        "recommendations": recommendations,
+    }
+
+
+def render_progress_block(
+    manifest: dict[str, Any], screenshot_links: list[str], readme_check: dict[str, Any]
+) -> str:
+    events = []
+    for event in manifest.get("events", []):
+        note = project_history_text(str(event.get("notes", ""))).strip()
+        if note:
+            events.append(f"- {note}")
+    completed = "\n".join(events) or "- 本阶段结果已记录；没有额外的关键节点。"
+    next_steps = [project_history_text(str(item)).strip() for item in manifest.get("next_steps", [])]
+    todos = "\n".join(f"- {item}" for item in next_steps if item) or "- 暂无明确待办。"
+    screenshots = "\n".join(f"- [{Path(item).name}]({item})" for item in screenshot_links)
+    if not screenshots:
+        screenshots = "- 本阶段不需要图片。"
+    readme_notes = readme_check.get("recommendations", [])
+    readme_status = "README 已包含启动方式和运行地址。" if not readme_notes else " ".join(readme_notes)
+    return (
+        f"## {stage_date(manifest)} · {project_history_text(str(manifest.get('title', 'Project stage')))}\n\n"
+        f"- 阶段：`{project_history_text(str(manifest.get('phase', '')) or 'unspecified')}`\n"
+        f"- 会话：`{project_history_text(str(manifest.get('capture_window', {}).get('id', '')) or 'legacy')}`\n\n"
+        "### 用户遇到的问题\n\n"
+        f"{project_history_text(str(manifest.get('summary', ''))) or '未单独记录。'}\n\n"
+        "### 这次解决了什么\n\n"
+        f"{project_history_text(str(manifest.get('outcome', ''))) or '未单独记录。'}\n\n"
+        "### 为什么调整方案\n\n"
+        f"{project_history_text(str(manifest.get('lesson', ''))) or '本阶段没有单独记录方案调整原因。'}\n\n"
+        "### 已完成\n\n"
+        f"{completed}\n\n"
+        "### 待办\n\n"
+        f"{todos}\n\n"
+        "### 截图\n\n"
+        f"{screenshots}\n\n"
+        "### README 核对\n\n"
+        f"{readme_status}\n\n"
+        "> 建议把本阶段代码、进展记录和截图放在同一次提交中。HaoStory 未执行 commit、push、上传或发布。"
+    )
+
+
 def share_stage(
     root: Path,
     session: Path,
     manifest: dict[str, Any],
     config: dict[str, Any],
+    *,
+    selected_assets: list[str] | None = None,
+    fallback_data_kind: str | None = None,
 ) -> dict[str, Any]:
     if manifest.get("capture_window", {}).get("status") != "closed":
         raise SystemExit("Close the phase before preparing a shared stage package.")
@@ -886,20 +1039,40 @@ def share_stage(
     if not report.get("release_ready", False):
         raise SystemExit("Privacy audit blocked this stage package; review privacy-report.json first.")
 
-    base = project_history_root(root, config, create=True)
-    initiative_dir = base / slugify(str(manifest.get("initiative") or "project"))
-    package = initiative_dir / session.name
-    if initiative_dir.is_symlink() or package.is_symlink():
-        raise SystemExit("Project history package must not be a symlink.")
-    try:
-        package.resolve().relative_to(root.resolve())
-    except ValueError as exc:
-        raise SystemExit("Project history package must stay inside the project.") from exc
-    package.mkdir(parents=True, exist_ok=True)
+    progress_file, screenshots_root = project_history_paths(root, config, create=True)
+    available = [str(item) for item in manifest.get("assets", [])]
+    requested = list(dict.fromkeys(selected_assets or []))
+    if requested:
+        missing = [item for item in requested if item not in available]
+        if missing:
+            raise SystemExit(f"Selected assets are not in this session: {', '.join(missing)}")
+        chosen = requested
+    else:
+        if len(available) > 3:
+            raise SystemExit(
+                "This phase has more than three screenshots. Pass --asset up to three times using: "
+                + ", ".join(available)
+            )
+        chosen = available
+    if len(chosen) > 3:
+        raise SystemExit("A shared stage may contain at most three screenshots.")
 
-    copied_assets: list[str] = []
+    metadata = event_asset_metadata(manifest)
+    for raw in chosen:
+        kind = metadata.get(raw, {}).get("data_kind", "unspecified")
+        if kind == "unspecified" and not fallback_data_kind:
+            raise SystemExit(
+                f"Screenshot data type is unknown for {raw}. Pass --data-kind real, demo, or mixed."
+            )
+
+    date_dir = screenshots_root / stage_date(manifest)
+    if date_dir.is_symlink():
+        raise SystemExit("Project screenshot date directory must not be a symlink.")
+    if chosen:
+        date_dir.mkdir(parents=True, exist_ok=True)
+    copied_assets: list[dict[str, str]] = []
     session_root = session.resolve()
-    for raw in manifest.get("assets", []):
+    for raw in chosen:
         relative = Path(str(raw))
         if relative.is_absolute() or not relative.parts or relative.parts[0] != "assets" or ".." in relative.parts:
             raise SystemExit(f"Invalid session asset path: {raw}")
@@ -910,24 +1083,67 @@ def share_stage(
             source.resolve().relative_to(session_root)
         except ValueError as exc:
             raise SystemExit(f"Session asset escapes its session: {raw}") from exc
-        target = package / relative
-        current = package
-        for part in relative.parts[:-1]:
-            current = current / part
-            if current.is_symlink():
-                raise SystemExit(f"Project history asset directory is a symlink: {current}")
+        target = date_dir / f"{slugify(session.name)}-{relative.name}"
         if target.is_symlink():
-            raise SystemExit(f"Project history asset target is a symlink: {target}")
-        target.parent.mkdir(parents=True, exist_ok=True)
+            raise SystemExit(f"Project screenshot target is a symlink: {target}")
         shutil.copy2(source, target)
-        copied_assets.append(relative.as_posix())
+        item = metadata.get(raw, {})
+        copied_assets.append(
+            {
+                "source": raw,
+                "path": str(target.relative_to(root)),
+                "caption": item.get("caption") or project_history_text(str(manifest.get("outcome", "Stage screenshot"))),
+                "data_kind": item.get("data_kind")
+                if item.get("data_kind") not in {None, "unspecified"}
+                else str(fallback_data_kind),
+            }
+        )
 
-    (package / "README.md").write_text(
-        render_stage_brief(manifest, copied_assets, reviewed=True), encoding="utf-8"
+    screenshot_index = date_dir / "README.md"
+    marker = slugify(session.name)
+    rows: list[str] = []
+    for item in copied_assets:
+        caption = item["caption"].replace("|", "\\|")
+        phase = project_history_text(str(manifest.get("phase", "")) or "unspecified")
+        rows.append(
+            f"| [{Path(item['path']).name}]({Path(item['path']).name}) | {caption} | "
+            f"`{item['data_kind']}` | `{phase}` |"
+        )
+    screenshot_block = (
+        f"## {project_history_text(str(manifest.get('title', 'Project stage')))}\n\n"
+        "| 截图 | 说明 | 数据 | 阶段 |\n"
+        "|---|---|---|---|\n"
+        + ("\n".join(rows) if rows else "| — | 本阶段不需要图片 | `not-applicable` | — |")
     )
+    if copied_assets:
+        replace_marked_block(
+            screenshot_index,
+            marker,
+            screenshot_block,
+            f"Screenshots · {stage_date(manifest)}",
+        )
+
+    readme_check = inspect_project_readme(root) if manifest.get("type") == "software" else {
+        "path": "README.md" if (root / "README.md").exists() else None,
+        "startup_documented": None,
+        "runtime_url_documented": None,
+        "recommendations": [],
+    }
+    screenshot_links = [
+        Path(os.path.relpath(root / item["path"], progress_file.parent)).as_posix()
+        for item in copied_assets
+    ]
+    progress_block = render_progress_block(manifest, screenshot_links, readme_check)
+    replace_marked_block(progress_file, marker, progress_block, "Project progress")
+
+    generated = [str(progress_file.relative_to(root))]
+    if copied_assets:
+        generated.append(str(screenshot_index.relative_to(root)))
+    generated.extend(item["path"] for item in copied_assets)
     manifest["project_history"] = {
         "prepared_at": now_iso(),
-        "directory": str(package.relative_to(root)),
+        "progress_file": str(progress_file.relative_to(root)),
+        "screenshots_directory": str(date_dir.relative_to(root)) if copied_assets else None,
         "asset_count": len(copied_assets),
         "confirmed_for_project_history": True,
         "uploaded": False,
@@ -936,8 +1152,13 @@ def share_stage(
     save_manifest(session, manifest)
     return {
         "status": "prepared",
-        "package": str(package),
+        "progress_file": str(progress_file),
+        "screenshots_directory": str(date_dir) if copied_assets else None,
         "asset_count": len(copied_assets),
+        "files": generated,
+        "commit_scope": generated,
+        "git_commit_recommended": True,
+        "readme_check": readme_check,
         "committed": False,
         "pushed": False,
         "uploaded": False,
@@ -954,6 +1175,7 @@ def remember_event(
     claims: list[str],
     evidence_refs: list[str],
     assets: list[str],
+    data_kind: str,
     max_events: int,
     force: bool,
 ) -> dict[str, Any]:
@@ -983,6 +1205,8 @@ def remember_event(
                         existing.append(sanitize(addition))
                         existing_keys.add(normalize_key(addition))
             manifest.setdefault("assets", []).extend(copied_assets)
+            if data_kind != "unspecified":
+                event["data_kind"] = data_kind
             for stage in manifest.setdefault("stages", []):
                 if stage.get("event_id") == event.get("event_id"):
                     stage.setdefault("assets", []).extend(copied_assets)
@@ -1014,6 +1238,7 @@ def remember_event(
         "claims": [sanitize(item) for item in claims],
         "evidence_refs": [sanitize(item) for item in evidence_refs],
         "assets": copied_assets,
+        "data_kind": data_kind,
         "captured_at": captured_at,
         "last_seen_at": captured_at,
     }
@@ -1305,7 +1530,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("setup", help="Create a safe project configuration and ignore local journals")
     enable = sub.add_parser("enable", help="Explicitly enable lightweight capture for this project")
-    enable.add_argument("--history-dir", default="docs/project-history")
+    enable.add_argument("--history-dir")
+    enable.add_argument("--progress-file", default="docs/progress.md")
+    enable.add_argument("--screenshots-dir", default="docs/screenshots")
     sub.add_parser("disable", help="Pause capture for this project without deleting existing records")
 
     suggest = sub.add_parser("suggest-start", help="Deterministically route an assisted-auto start")
@@ -1349,6 +1576,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember.add_argument("--claim", action="append", default=[])
     remember.add_argument("--evidence-ref", action="append", default=[])
     remember.add_argument("--asset", action="append", default=[])
+    remember.add_argument("--data-kind", choices=DATA_KINDS, default="unspecified")
     remember.add_argument("--force", action="store_true")
 
     pause = sub.add_parser("pause", help="Pause automatic capture without ending the phase")
@@ -1362,11 +1590,14 @@ def build_parser() -> argparse.ArgumentParser:
     close.add_argument("--session")
     close.add_argument("--result", required=True)
     close.add_argument("--lesson", default="")
+    close.add_argument("--todo", action="append", default=[])
     close.add_argument("--handoff", action="store_true")
 
-    share = sub.add_parser("share-stage", help="Prepare a reviewed, Git-friendly stage package locally")
+    share = sub.add_parser("share-stage", help="Prepare a reviewed progress-and-screenshot record locally")
     share.add_argument("--session")
     share.add_argument("--confirmed", action="store_true")
+    share.add_argument("--asset", action="append", default=[])
+    share.add_argument("--data-kind", choices=("real", "demo", "mixed"))
 
     archive_only = sub.add_parser("archive-only", help="Mark a session as never recommended for publication")
     archive_only.add_argument("--session")
@@ -1418,21 +1649,34 @@ def main() -> int:
         config = load_config(root)
         config.setdefault("capture", {}).update(mode="assisted-auto", auto_start=True)
         config["capture"].setdefault("max_events_per_phase", 4)
+        if args.history_dir:
+            legacy_base = Path(args.history_dir)
+            progress_file = str(legacy_base / "progress.md")
+            screenshots_directory = str(legacy_base / "screenshots")
+            history_directory = args.history_dir
+        else:
+            progress_file = args.progress_file
+            screenshots_directory = args.screenshots_dir
+            history_directory = str(Path(progress_file).parent)
         config.setdefault("project_history", {}).update(
             enabled=True,
-            directory=args.history_dir,
+            directory=history_directory,
+            progress_file=progress_file,
+            screenshots_directory=screenshots_directory,
             requires_stage_confirmation=True,
             auto_commit=False,
             auto_push=False,
             auto_upload=False,
         )
-        history_root = project_history_root(root, config)
+        progress_path, screenshots_path = project_history_paths(root, config)
         save_json(root / CONFIG_FILE, config)
         print(
             json.dumps(
                 {
                     "mode": "assisted-auto",
-                    "history_directory": str(history_root.relative_to(root)),
+                    "history_directory": history_directory,
+                    "progress_file": str(progress_path.relative_to(root)),
+                    "screenshots_directory": str(screenshots_path.relative_to(root)),
                     "max_events_per_phase": config["capture"]["max_events_per_phase"],
                     "committed": False,
                     "pushed": False,
@@ -1569,9 +1813,21 @@ def main() -> int:
     if args.action == "share-stage":
         if not args.confirmed:
             raise SystemExit(
-                "share-stage copies reviewed materials into the project history; pass --confirmed after stage-level review."
+                "share-stage writes reviewed materials into the project record; pass --confirmed after stage-level review."
             )
-        print(json.dumps(share_stage(root, session, manifest, config), ensure_ascii=False))
+        print(
+            json.dumps(
+                share_stage(
+                    root,
+                    session,
+                    manifest,
+                    config,
+                    selected_assets=args.asset,
+                    fallback_data_kind=args.data_kind,
+                ),
+                ensure_ascii=False,
+            )
+        )
         return 0
 
     if args.action == "archive-only":
@@ -1649,6 +1905,7 @@ def main() -> int:
             claims=args.claim,
             evidence_refs=args.evidence_ref,
             assets=args.asset,
+            data_kind=args.data_kind,
             max_events=int(capture_config.get("max_events_per_phase", 4)),
             force=args.force,
         )
@@ -1704,6 +1961,7 @@ def main() -> int:
         manifest["outcome"] = sanitize(args.result)
         if args.lesson:
             manifest["lesson"] = sanitize(args.lesson)
+        manifest["next_steps"] = [sanitize(item) for item in args.todo if sanitize(item).strip()]
         manifest["finished_at"] = closed_at
         window = manifest.setdefault(
             "capture_window",
@@ -1754,7 +2012,7 @@ def main() -> int:
         response_readiness["assets_path"] = str(session / "assets")
         response_readiness["prompt"] = (
             f"Phase complete. Assets are in {session / 'assets'}. "
-            "Produce video, article, both, archive, or prepare a reviewed project-history package?"
+            "Produce video, article, both, archive, or prepare a reviewed project record?"
         )
         print(
             json.dumps(

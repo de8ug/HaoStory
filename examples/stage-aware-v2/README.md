@@ -1,11 +1,12 @@
 # Stage-aware V2 demo
 
-This demo explicitly enables lightweight capture, exercises two phases, and prepares one reviewed project-history package without committing, uploading, or publishing it.
+This demo explicitly enables lightweight capture, exercises two phases, and prepares one reviewed progress-and-screenshot record without committing, uploading, or publishing it.
 
 ```bash
 python3 skill/haostory/scripts/haostory.py setup
 python3 skill/haostory/scripts/haostory.py enable \
-  --history-dir docs/project-history
+  --progress-file docs/progress.md \
+  --screenshots-dir docs/screenshots
 
 python3 skill/haostory/scripts/haostory.py suggest-start \
   --session demo-build \
@@ -28,12 +29,14 @@ python3 skill/haostory/scripts/haostory.py remember \
   --notes "A lifecycle-state fix made the test pass." \
   --novelty-key lifecycle-exit-1 \
   --evidence-ref test:lifecycle-pass \
-  --asset /tmp/stable-recovery.png
+  --asset /tmp/stable-recovery.png \
+  --data-kind demo
 
 python3 skill/haostory/scripts/haostory.py close-phase \
   --session demo-build \
   --result "The build is runnable and ready for validation." \
   --lesson "Lifecycle behavior must be verified across phases." \
+  --todo "Validate the flow with real data." \
   --handoff
 
 # Run only after reviewing the whole phase and its selected screenshot.
@@ -70,7 +73,7 @@ Expected result:
 - three equal failures fold into one event, while recovery remains separate;
 - the stable recovery screenshot is copied directly into `demo-build/assets/recovery/` without a candidates queue;
 - closing on handoff writes a private stage brief and reports the assets location, but does not create exports, commit, upload, publish, or update the registry;
-- `share-stage` copies the reviewed brief and screenshot into `docs/project-history/capture-v2/demo-build/` for a later user-controlled Git operation;
+- `share-stage` updates `docs/progress.md`, copies the reviewed screenshot into `docs/screenshots/YYYY-MM-DD/`, and reports those files for a later user-controlled Git operation;
 - the validate story plan identifies the new claim and evidence;
 - no visual asset is copied and the text privacy audit passes.
 

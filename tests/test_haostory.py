@@ -267,12 +267,15 @@ class HaoStoryTests(unittest.TestCase):
                 self.run_cli(
                     project,
                     "enable",
-                    "--history-dir",
-                    "docs/progress",
+                    "--progress-file",
+                    "docs/progress.md",
+                    "--screenshots-dir",
+                    "docs/screenshots",
                 ).stdout
             )
             self.assertEqual(enabled["mode"], "assisted-auto")
-            self.assertEqual(enabled["history_directory"], "docs/progress")
+            self.assertEqual(enabled["progress_file"], "docs/progress.md")
+            self.assertEqual(enabled["screenshots_directory"], "docs/screenshots")
             self.assertFalse(enabled["uploaded"])
             config = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(config["capture"]["mode"], "assisted-auto")
@@ -291,15 +294,14 @@ class HaoStoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             project = self.make_project(Path(temp))
             outside = project.parent / "outside-history"
-            for unsafe in ("../outside-history", ".git/story", ".haostory/shared", str(outside)):
-                result = self.run_cli(
-                    project,
-                    "enable",
-                    "--history-dir",
-                    unsafe,
-                    expected=1,
-                )
-                self.assertIn("history", result.stderr.lower())
+            for option, unsafe in (
+                ("--progress-file", "../outside-history/progress.md"),
+                ("--progress-file", ".git/story.md"),
+                ("--screenshots-dir", ".haostory/shared"),
+                ("--screenshots-dir", str(outside)),
+            ):
+                result = self.run_cli(project, "enable", option, unsafe, expected=1)
+                self.assertIn("project", result.stderr.lower())
             self.assertFalse(outside.exists())
 
     def test_lightweight_event_budget_folds_duplicates_and_requires_force_for_exception(self) -> None:
@@ -388,7 +390,11 @@ class HaoStoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             project = self.make_project(Path(temp))
             self.run_cli(project, "setup")
-            self.run_cli(project, "enable", "--history-dir", "docs/project-history")
+            self.run_cli(project, "enable")
+            (project / "README.md").write_text(
+                "# Demo\n\n```bash\npython3 app.py\n```\n\nOpen http://localhost:8000\n",
+                encoding="utf-8",
+            )
             session = Path(
                 self.run_cli(
                     project,
@@ -422,6 +428,8 @@ class HaoStoryTests(unittest.TestCase):
                 "test:demo-flow",
                 "--asset",
                 str(asset),
+                "--data-kind",
+                "demo",
             )
             self.run_cli(
                 project,
@@ -432,6 +440,8 @@ class HaoStoryTests(unittest.TestCase):
                 "The stage passed validation.",
                 "--lesson",
                 "Keep only evidence that explains the result.",
+                "--todo",
+                "Ask two users to verify the flow.",
             )
             unconfirmed = self.run_cli(
                 project,
@@ -451,19 +461,163 @@ class HaoStoryTests(unittest.TestCase):
                     "--confirmed",
                 ).stdout
             )
-            package = Path(shared["package"])
-            self.assertTrue(package.is_relative_to(project.resolve()))
-            self.assertTrue((package / "README.md").exists())
-            self.assertEqual((package / "assets" / "demo" / "stable-demo.png").read_bytes(), b"reviewed-image")
-            article_material = (package / "README.md").read_text(encoding="utf-8")
+            progress = Path(shared["progress_file"])
+            screenshots = Path(shared["screenshots_directory"])
+            copied = next(path for path in screenshots.iterdir() if path.suffix == ".png")
+            self.assertTrue(progress.is_relative_to(project.resolve()))
+            self.assertEqual(copied.read_bytes(), b"reviewed-image")
+            article_material = progress.read_text(encoding="utf-8")
             self.assertIn("The stage passed validation.", article_material)
             self.assertIn("The first stable result worked", article_material)
+            self.assertIn("Ask two users to verify the flow.", article_material)
             self.assertNotIn("192.168.1.2", article_material)
             self.assertIn("<private-ip-redacted>", article_material)
-            self.assertIn("assets/demo/stable-demo.png", article_material)
+            screenshot_index = (screenshots / "README.md").read_text(encoding="utf-8")
+            self.assertIn("`demo`", screenshot_index)
+            self.assertIn("The first stable result worked", screenshot_index)
+            self.assertTrue(shared["readme_check"]["startup_documented"])
+            self.assertTrue(shared["readme_check"]["runtime_url_documented"])
+            self.assertIn("docs/progress.md", shared["commit_scope"])
             self.assertFalse(shared["uploaded"])
             self.assertFalse(shared["committed"])
-            self.assertFalse((package / ".git").exists())
+            self.assertFalse((screenshots / ".git").exists())
+
+            repeated = json.loads(
+                self.run_cli(
+                    project,
+                    "share-stage",
+                    "--session",
+                    session.name,
+                    "--confirmed",
+                ).stdout
+            )
+            self.assertEqual(repeated["asset_count"], 1)
+            self.assertEqual(progress.read_text(encoding="utf-8").count(f"haostory:{session.name}:start"), 1)
+
+    def test_share_stage_requires_data_kind_for_legacy_screenshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            self.run_cli(project, "enable")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Legacy visual",
+                    "--initiative",
+                    "legacy-visual",
+                    "--phase",
+                    "validate",
+                ).stdout.strip()
+            )
+            asset = project / "legacy.png"
+            asset.write_bytes(b"legacy")
+            self.run_cli(
+                project,
+                "remember",
+                "--session",
+                session.name,
+                "--event",
+                "demo",
+                "--notes",
+                "A useful legacy screenshot.",
+                "--novelty-key",
+                "legacy",
+                "--asset",
+                str(asset),
+            )
+            self.run_cli(
+                project,
+                "close-phase",
+                "--session",
+                session.name,
+                "--result",
+                "The legacy flow worked.",
+            )
+            blocked = self.run_cli(
+                project,
+                "share-stage",
+                "--session",
+                session.name,
+                "--confirmed",
+                expected=1,
+            )
+            self.assertIn("--data-kind", blocked.stderr)
+            shared = json.loads(
+                self.run_cli(
+                    project,
+                    "share-stage",
+                    "--session",
+                    session.name,
+                    "--confirmed",
+                    "--data-kind",
+                    "real",
+                ).stdout
+            )
+            index = Path(shared["screenshots_directory"]) / "README.md"
+            self.assertIn("`real`", index.read_text(encoding="utf-8"))
+
+    def test_share_stage_never_guesses_when_more_than_three_screenshots_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            self.run_cli(project, "setup")
+            self.run_cli(project, "enable")
+            session = Path(
+                self.run_cli(
+                    project,
+                    "start",
+                    "--title",
+                    "Choose key screenshots",
+                    "--initiative",
+                    "screenshot-limit",
+                    "--phase",
+                    "build",
+                ).stdout.strip()
+            )
+            for index in range(4):
+                asset = project / f"screen-{index}.png"
+                asset.write_bytes(str(index).encode())
+                self.run_cli(
+                    project,
+                    "remember",
+                    "--session",
+                    session.name,
+                    "--event",
+                    "demo",
+                    "--notes",
+                    f"Important screen {index}",
+                    "--novelty-key",
+                    f"screen-{index}",
+                    "--asset",
+                    str(asset),
+                    "--data-kind",
+                    "demo",
+                )
+            self.run_cli(
+                project,
+                "close-phase",
+                "--session",
+                session.name,
+                "--result",
+                "Four possible screenshots exist.",
+            )
+            blocked = self.run_cli(
+                project,
+                "share-stage",
+                "--session",
+                session.name,
+                "--confirmed",
+                expected=1,
+            )
+            self.assertIn("more than three", blocked.stderr)
+            manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+            selected = manifest["assets"][:3]
+            args = ["share-stage", "--session", session.name, "--confirmed"]
+            for item in selected:
+                args.extend(("--asset", item))
+            shared = json.loads(self.run_cli(project, *args).stdout)
+            self.assertEqual(shared["asset_count"], 3)
 
     def test_omitted_session_requires_one_active_window(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

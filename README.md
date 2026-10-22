@@ -45,7 +45,7 @@ Published claims are remembered in local `.haostory/story-registry.json`. Before
 
 During assisted work, the Agent can save stable screenshots of key failures, recoveries, before/after states, milestones, and demos directly into the private session's `assets/`. There is no candidates queue or per-image confirmation. When an important choice is genuinely ambiguous, the Agent asks one focused question instead of interviewing the user repeatedly.
 
-Closing a phase writes a small private brief and reports the material location. After one phase-level review, `share-stage --confirmed` can prepare a concise Markdown-and-images package in a configured project directory, ready for the user's ordinary Git workflow and cross-device access. HaoStory itself never commits, pushes, uploads, or publishes it. Final article or video production still requires a separate request.
+Closing a phase writes a small private brief and reports the material location. After one phase-level review, `share-stage --confirmed` updates one project progress log and copies at most three key screenshots into a dated folder. Each screenshot carries a short caption and a `real`, `demo`, or `mixed` data label. The command also checks whether a software project's README appears to contain a startup command and runtime URL, then reports the exact files recommended for the same commit as the code. HaoStory itself never edits the README, commits, pushes, uploads, or publishes. Final article or video production still requires a separate request.
 
 When `--session` is omitted, HaoStory uses the only active or paused window. Multiple candidates produce an explicit error; with no active window, V1 fallback uses the newest manifest `updated_at`. Ordinary session IDs and registry paths cannot escape the project's non-symlinked `.haostory/` directory.
 
@@ -68,21 +68,24 @@ When `--session` is omitted, HaoStory uses the only active or paused window. Mul
     ├── social.en.md
     └── content-package.json
 
-docs/project-history/<initiative>/<session>/   # only after share-stage --confirmed
-├── README.md
-└── assets/
+docs/                                         # only after share-stage --confirmed
+├── progress.md                               # one deterministic block per stage
+└── screenshots/YYYY-MM-DD/
+    ├── README.md                             # captions and real/demo/mixed labels
+    └── <up to three key screenshots>
 ```
 
 ## Quick start
 
-Private raw records stay in Git-ignored `.haostory/`. After phase-level confirmation, a concise package can be prepared under `docs/project-history/<initiative>/<session>/`; committing or syncing it remains a separate user decision.
+Private raw records stay in Git-ignored `.haostory/`. After phase-level confirmation, a concise record can be prepared in `docs/progress.md` and `docs/screenshots/YYYY-MM-DD/`; committing or syncing it remains a separate user decision. Prefer committing these files with the meaningful code change they explain.
 
 Copy `skill/haostory` into the skills directory used by your agent, or ask the agent to read this repository's `SKILL.md`.
 
 ```bash
 python3 skill/haostory/scripts/haostory.py setup
 python3 skill/haostory/scripts/haostory.py enable \
-  --history-dir docs/project-history
+  --progress-file docs/progress.md \
+  --screenshots-dir docs/screenshots
 # Assisted-auto route (use this or the explicit start below)
 python3 skill/haostory/scripts/haostory.py suggest-start \
   --title "Build stage-aware capture" \
@@ -101,11 +104,13 @@ python3 skill/haostory/scripts/haostory.py remember \
   --event demo \
   --notes "The stable desktop result" \
   --novelty-key stable-demo \
-  --asset /tmp/stable-demo.png
+  --asset /tmp/stable-demo.png \
+  --data-kind demo
 python3 skill/haostory/scripts/haostory.py pause --reason "This section is excluded"
 python3 skill/haostory/scripts/haostory.py resume
 python3 skill/haostory/scripts/haostory.py close-phase \
   --result "The build is ready for validation" \
+  --todo "Verify the mobile flow with real data" \
   --handoff
 python3 skill/haostory/scripts/haostory.py share-stage \
   --confirmed

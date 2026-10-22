@@ -14,16 +14,17 @@
 - Capture only the current task's meaningful visual state at `failure`, `recovery`, `before_after`, `milestone`, or `demo` events.
 - Wait for loading and entrance animations to settle. Recapture transparent, blank, clipped, or spinner frames instead of storing them.
 - Store valid screenshots directly with `remember --asset`; do not create candidate queues or require per-image confirmation.
+- Label each saved visual as `real`, `demo`, or `mixed`; do not infer the classification from appearance.
 - Never capture private chats, credential or account screens, browser profiles, production user data, unrelated windows, or full-desktop views that expose other applications.
 - Local asset capture does not authorize content production or publication. Review generated content before release.
 
-## Project-history gate
+## Project-record gate
 
 - Treat `.haostory/` as private working material.
 - Ask for one phase-level confirmation before `share-stage`; do not ask for every ordinary image.
-- `--confirmed` means the user reviewed the phase for placement in the local project history. It does not authorize a Git commit, push, upload, publication, or reuse in another project.
+- `--confirmed` means the user reviewed the phase for placement in the local project record. It does not authorize a Git commit, push, upload, publication, or reuse in another project.
 - The text audit cannot inspect image pixels. Before confirmation, inspect selected screenshots for credentials, children or third parties, private messages, account details, server addresses, unpublished business data, and unrelated windows.
-- Keep shared packages concise: summary, key decisions, reusable conclusions, evidence references, and only the few images needed to support them.
+- Keep the project record concise: one progress block and no more than three images needed to support it. Do not include private photos, credentials, household storage, identifiable third parties, or unrelated project details.
 
 ## Explicit external audit/export paths
 

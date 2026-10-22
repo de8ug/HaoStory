@@ -51,7 +51,9 @@
   },
   "project_history": {
     "enabled": false,
-    "directory": "docs/project-history",
+    "directory": "docs",
+    "progress_file": "docs/progress.md",
+    "screenshots_directory": "docs/screenshots",
     "requires_stage_confirmation": true,
     "auto_commit": false,
     "auto_push": false,

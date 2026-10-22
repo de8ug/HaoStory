@@ -43,11 +43,13 @@ V2 keeps `schema: haostory/v1` and adds optional, backward-compatible fields:
 - `initiative` and `phase` identify the stage goal;
 - `capture_window` stores mode, active/paused/closed status, pause history, and close reason;
 - `events` stores observable high-confidence events, stable `novelty_key` values, occurrence counts, claims, and evidence refs;
+- event-level `data_kind` labels screenshots as `real`, `demo`, `mixed`, or the legacy/default `unspecified`;
 - `necessary_context` links a new phase to a minimal public-safe summary of the prior phase.
 - `archive_only`, `archive_only_reason`, and `archive_only_at` record an explicit human decision to suppress publication recommendations.
 - event-level `assets` and manifest-level `assets` contain direct, session-relative visual evidence paths; repeated filenames receive collision-safe suffixes.
 - `content_readiness` records counts, the relative `assets/` location, privacy state, recommended route, available production choices, and the fact that production still requires an explicit request.
-- `project_history` is added only after `share-stage --confirmed`; it records the prepared project-relative package and explicitly keeps commit/upload flags false.
+- `next_steps` stores the concise unfinished items supplied with `close-phase --todo`.
+- `project_history` is added only after `share-stage --confirmed`; it records the progress file, dated screenshot directory, and explicitly keeps commit/upload flags false.
 
 V1 readers may ignore these fields. V2 commands continue to read manifests that do not contain them; `checkpoint`, `finish`, `audit`, and `export` do not require migration. For an old manifest, story planning may use its lesson/outcome as a claim and its selected command or asset references as evidence.
 
@@ -85,20 +87,23 @@ V1 readers may ignore these fields. V2 commands continue to read manifests that 
 
 It also writes a short private `stage-brief.md`. This brief is writing material, not a finished article, and remains under `.haostory/` until the user reviews the whole phase.
 
-## Reviewed project history
+## Reviewed project record
 
 After a closed phase and a successful privacy audit, `share-stage --confirmed` may prepare:
 
 ```text
-<project_history.directory>/<initiative>/<session>/
-├── README.md
-└── assets/
-    └── <event>/<selected-image>
+docs/
+├── progress.md
+└── screenshots/YYYY-MM-DD/
+    ├── README.md
+    └── <up to three selected images>
 ```
 
-The Markdown keeps only the stage goal, result, lesson, a few key events, claims, evidence references, and relative image links. It contains no raw Git patches, terminal dumps, registry, hidden reasoning, or full timeline. The destination must remain inside the project and outside `.git/` and `.haostory/`.
+`progress.md` contains one marker-delimited block per session, so rerunning the command replaces that block instead of duplicating it. It keeps the user problem, result, reason for the adjustment, completed work, TODOs, screenshot links, and README check. The dated screenshot index records a caption and data label for every image. If more than three screenshots exist, the caller must select up to three with repeatable `--asset`. A legacy or unlabelled image requires one `--data-kind real|demo|mixed` fallback.
 
-`share-stage` does not stage, commit, push, upload, render, or publish anything. A later version-control or publication action requires a separate user request.
+These files contain no raw Git patches, terminal dumps, registry, hidden reasoning, or full timeline. Both configurable destinations must remain inside the project and outside `.git/` and `.haostory/`.
+
+`share-stage` returns the generated files as `commit_scope` and checks whether a software README appears to include a startup command and runtime URL. It does not edit the README, stage, commit, push, upload, render, or publish anything. A later version-control or publication action requires a separate user request.
 
 For backward compatibility, `privacy-report.json` retains `manual_asset_review_required`. V2.1 also writes `asset_review_gate: final_content` and `visual_review_at_content_gate: true` when images exist; this means the finished video or article is reviewed, not that every captured image needs pre-approval.
 

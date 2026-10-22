@@ -37,11 +37,11 @@ In assisted-auto mode, capture useful screenshots at visual `failure`, `recovery
 3. Model work as Project → Initiative → Phase → Capture Window → Event. Phases are `discovery`, `design`, `build`, `validate`, `release`, and `operate`.
 4. Before meaningful work, run `suggest-start` in assisted-auto mode or explicit `start` in manual mode. If capture starts, tell the user in commentary: “HaoStory 已为 `<initiative>/<phase>` 开始本地记录”. Never start silently.
 5. Run `remember` only for a high-confidence observable event: `decision`, `scope_change`, `failure`, `recovery`, `before_after`, `milestone`, `demo`, `metric`, or redacted `external_signal`. Generate a stable `novelty_key`; repeated `event type + novelty_key` attempts fold into one event. Prefer one result, one changed judgment, and one or two pieces of proof over a complete chronology. When the event has useful visual proof, wait for the page or app to stabilize, save the screenshot locally, and attach it with `remember --asset` so it goes directly into `assets/`.
-6. Use `pause` while waiting or excluding a section, `resume` when the same goal and acceptance criteria continue, and `close-phase` when the phase result is known or a handoff enters review. Closing writes a private `stage-brief.md`, audits the session, reports its asset location, and asks whether to produce video, article, both, archive, or prepare a reviewed project-history package. It does not export, render, commit, push, upload, publish, or update published-story memory.
-7. If the user has reviewed the whole phase and wants its materials available with the project, run `share-stage --confirmed`. This copies only the concise brief and selected assets into the configured project-relative history directory. It never runs Git or a network operation.
+6. Use `pause` while waiting or excluding a section, `resume` when the same goal and acceptance criteria continue, and `close-phase` when the phase result is known or a handoff enters review. Add only concrete unfinished work with repeatable `--todo`. Closing writes a private `stage-brief.md`, audits the session, reports its asset location, and asks whether to produce video, article, both, archive, or prepare a reviewed project record. It does not export, render, commit, push, upload, publish, or update published-story memory.
+7. If the user has reviewed the whole phase and wants its materials available with the project, run `share-stage --confirmed`. This updates one deterministic block in `docs/progress.md` and copies at most three selected screenshots to `docs/screenshots/YYYY-MM-DD/`. The dated index records a caption and `real`, `demo`, or `mixed` data label. For software work, report missing README startup instructions or runtime URL, but do not edit the README. Return the generated files as the recommended same-commit scope; never run Git or a network operation.
 8. Do not produce content until the user explicitly asks. Then run `registry check`, `story-plan`, `audit`, and explicit `export` before editorial or rendering work. A repeated claim without new evidence routes to archive.
 9. Improve generated drafts using the evidence package. Rewrite or translate each requested language naturally; do not leave untranslated source text in the other language. Do not invent events, metrics, quotes, or results.
-10. Ask for human approval before publishing, registering a story as published, committing or uploading a project-history package, or copying raw evidence into a public repository.
+10. Ask for human approval before publishing, registering a story as published, committing or uploading a project record, or copying raw evidence into a public repository.
 
 Read `references/project-integration.md` when the user wants HaoStory applied automatically across future sessions in a project.
 
@@ -79,15 +79,15 @@ From the target project root:
 
 ```bash
 python3 <skill>/scripts/haostory.py setup
-python3 <skill>/scripts/haostory.py enable --history-dir docs/project-history
+python3 <skill>/scripts/haostory.py enable --progress-file docs/progress.md --screenshots-dir docs/screenshots
 python3 <skill>/scripts/haostory.py suggest-start --title "Stage goal" --initiative capture-v2 --phase build
 python3 <skill>/scripts/haostory.py start --title "Task title" --summary "Why it matters" --type product
 python3 <skill>/scripts/haostory.py checkpoint --stage decision --notes "What changed" --decision "Why"
 python3 <skill>/scripts/haostory.py checkpoint --stage tests --notes "What was verified" --run npm test
-python3 <skill>/scripts/haostory.py remember --event demo --notes "Stable result" --novelty-key first-demo --asset /tmp/stable-demo.png
+python3 <skill>/scripts/haostory.py remember --event demo --notes "Stable result" --novelty-key first-demo --asset /tmp/stable-demo.png --data-kind demo
 python3 <skill>/scripts/haostory.py pause --reason "This section is excluded"
 python3 <skill>/scripts/haostory.py resume
-python3 <skill>/scripts/haostory.py close-phase --result "What is now known" --handoff
+python3 <skill>/scripts/haostory.py close-phase --result "What is now known" --todo "What remains" --handoff
 python3 <skill>/scripts/haostory.py share-stage --confirmed
 python3 <skill>/scripts/haostory.py disable
 python3 <skill>/scripts/haostory.py archive-only --reason "The user said this must not be public"
@@ -100,11 +100,11 @@ python3 <skill>/scripts/haostory.py export
 python3 <skill>/scripts/haostory.py registry publish --story story-id --channel channel-name --confirmed
 ```
 
-Use `--asset path/to/file` for task-relevant visual evidence captured by the Agent or explicitly provided by the user. The CLI copies it directly into the session and prevents filename collisions. Treat screenshots as potentially sensitive even when the text audit passes; never capture prohibited contexts listed in `references/privacy.md`.
+Use `--asset path/to/file` for task-relevant visual evidence captured by the Agent or explicitly provided by the user. Add `--data-kind real`, `demo`, or `mixed` whenever an image is present. The CLI copies it directly into the session and prevents filename collisions. Treat screenshots as potentially sensitive even when the text audit passes; never capture prohibited contexts listed in `references/privacy.md`.
 
 ## Output policy
 
-Keep raw evidence local under ignored `.haostory/`. A confirmed project-history package contains only a concise Markdown brief and selected images under the configured project-relative directory, so it can be reviewed and later included in ordinary version control. Preparing it is not approval to commit, push, upload, publish, or produce final content. Read `references/output-schema.md` when changing either layer.
+Keep raw evidence local under ignored `.haostory/`. A confirmed project record contains one concise entry in `docs/progress.md` and at most three selected images plus captions under `docs/screenshots/YYYY-MM-DD/`, so it can be reviewed and later included in ordinary version control with the code it explains. If more than three images exist, choose explicitly with repeatable `share-stage --asset`; if a legacy image lacks a data label, pass one `--data-kind` fallback. Preparing files is not approval to commit, push, upload, publish, or produce final content. Read `references/output-schema.md` when changing either layer.
 
 Generated drafts are scaffolds, not final editorial copy. Strengthen them around one tension, one changed judgment, and verifiable proof. Prefer:
 
