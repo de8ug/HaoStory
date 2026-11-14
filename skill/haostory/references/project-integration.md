@@ -1,6 +1,6 @@
 # Project integration
 
-Installing a global Skill only makes HaoStory available. It must remain paused until the user explicitly enables it for a named project. Run `setup`, then `enable --progress-file docs/progress.md --screenshots-dir docs/screenshots` only after that opt-in. Add a short instruction to the target repository's `AGENTS.md` or equivalent project instruction file:
+Installing a global Skill only makes HaoStory Studio available. The user may explicitly open Studio for a one-time content job; this does not authorize ongoing capture. Capture must remain paused until the user explicitly enables it for a named project. Run `setup`, then `enable --progress-file docs/progress.md --screenshots-dir docs/screenshots` only after that capture opt-in. Add a short instruction to the target repository's `AGENTS.md` or equivalent project instruction file:
 
 ```markdown
 ## HaoStory

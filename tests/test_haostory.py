@@ -125,6 +125,67 @@ class HaoStoryTests(unittest.TestCase):
             self.assertTrue(report["release_ready"])
             self.assertIn(".haostory/", (project / ".gitignore").read_text(encoding="utf-8"))
 
+    def test_studio_check_does_not_enable_capture_and_jobs_have_cli_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            project = self.make_project(Path(temp))
+            (project / "docs").mkdir()
+            (project / "docs" / "story.md").write_text("A project result.", encoding="utf-8")
+
+            host_context = project / "host-context.json"
+            host_context.write_text(
+                json.dumps(
+                    {
+                        "host": "codex",
+                        "conversations": [{"id": "thread-1", "title": "Recent project chat"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            checked = json.loads(
+                self.run_cli(
+                    project,
+                    "studio",
+                    "--check",
+                    "--host-context",
+                    str(host_context),
+                ).stdout
+            )
+            self.assertEqual(checked["product"], "HaoStory Studio")
+            self.assertEqual(checked["source_count"], 2)
+            self.assertEqual(checked["conversation_count"], 1)
+            self.assertFalse(checked["capture_enabled"])
+            self.assertFalse((project / ".haostory.json").exists())
+
+            created = MODULE.studio.create_job(
+                project,
+                {
+                    "selected_paths": ["README.md", "docs/story.md"],
+                    "formats": ["article"],
+                    "angle": "project_case_study",
+                },
+            )
+            latest = json.loads(self.run_cli(project, "studio-job", "latest").stdout)
+            self.assertEqual(latest["job_id"], created["job_id"])
+            shown = json.loads(
+                self.run_cli(project, "studio-job", "show", "--job", created["job_id"]).stdout
+            )
+            self.assertEqual(shown["selected_paths"], ["README.md", "docs/story.md"])
+
+            output = project / "docs" / "article.md"
+            output.write_text("# Article\n", encoding="utf-8")
+            completed = json.loads(
+                self.run_cli(
+                    project,
+                    "studio-job",
+                    "complete",
+                    "--job",
+                    created["job_id"],
+                    "--output",
+                    "docs/article.md",
+                ).stdout
+            )
+            self.assertEqual(completed["status"], "completed")
+
     def test_assisted_auto_starts_meaningful_build_and_records_demo(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             project = self.make_project(Path(temp))
@@ -464,7 +525,7 @@ class HaoStoryTests(unittest.TestCase):
             progress = Path(shared["progress_file"])
             screenshots = Path(shared["screenshots_directory"])
             copied = next(path for path in screenshots.iterdir() if path.suffix == ".png")
-            self.assertTrue(progress.is_relative_to(project.resolve()))
+            self.assertEqual(progress.relative_to(project.resolve()).parts[0], "docs")
             self.assertEqual(copied.read_bytes(), b"reviewed-image")
             article_material = progress.read_text(encoding="utf-8")
             self.assertIn("The stage passed validation.", article_material)

@@ -1,5 +1,17 @@
 # Brand and commercial boundary
 
+## Official Studio console
+
+The official HaoStory Studio console may display a low-pressure footer for:
+
+- 浩哥 AI 实验室;
+- WeChat `HaoAILab` with an invitation to explore AI together;
+- OneTake as an optional next step for turning a finished script into a video.
+
+These notices are part of the console interface only. Never insert them into a Studio job, article, video script, storyboard, Xiaohongshu post, export, or user project file. Read console values from `studio.sponsor` in `.haostory.json`; forks may set `enabled: false` or replace every value.
+
+Do not interpret the presence of a console notice as permission to promote, contact, upload, publish, or add a call to action to generated work.
+
 Read optional brand values from `.haostory.json`:
 
 ```json

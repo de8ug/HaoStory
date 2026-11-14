@@ -1,5 +1,15 @@
 # Privacy and release safety
 
+## Studio selection boundary
+
+- Opening Studio is an explicit content-production action, not consent to enable future capture.
+- Before selection, list only safe filenames, type, size, and host-provided conversation metadata.
+- Read only the project files selected in the submitted Studio job.
+- Retrieve conversation messages only after the user selects a host-provided conversation reference.
+- Do not infer permission to read adjacent files, all recent chats, source trees, image libraries, private `.haostory` sessions, or another project.
+- Host-context JSON may contain IDs, titles, project labels, and update times; reject message bodies or transcripts.
+- Keep Studio jobs under ignored `.haostory/studio/`. Console sponsor text must not enter a job or output.
+
 ## Before capture
 
 - Confirm the repository is the intended project.

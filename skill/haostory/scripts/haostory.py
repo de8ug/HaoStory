@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any
 
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+import studio  # noqa: E402
+
+
 SCHEMA = "haostory/v1"
 REGISTRY_SCHEMA = "haostory/story-registry/v1"
 JOURNAL_DIR = ".haostory"
@@ -52,6 +58,17 @@ SENSITIVE_PATH_PARTS = (
 SENSITIVE_SUFFIXES = {".pem", ".p12", ".pfx", ".key"}
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "studio": {
+        "sponsor": {
+            "enabled": True,
+            "lab_name": "浩哥 AI 实验室",
+            "lab_note": "关注 AI 产品、创作与实践",
+            "wechat": "HaoAILab",
+            "wechat_note": "一起玩转 AI",
+            "onetake_name": "OneTake",
+            "onetake_note": "把脚本继续做成视频",
+        }
+    },
     "languages": ["zh-CN", "en"],
     "brand": {
         "name": "",
@@ -1529,6 +1546,27 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="action", required=True)
 
     sub.add_parser("setup", help="Create a safe project configuration and ignore local journals")
+    studio_command = sub.add_parser("studio", help="Open the local HaoStory Studio content console")
+    studio_command.add_argument("--port", type=int, default=0)
+    studio_command.add_argument("--no-open", action="store_true")
+    studio_command.add_argument(
+        "--host-context",
+        help="Agent-provided JSON containing recent conversation metadata only",
+    )
+    studio_command.add_argument("--check", action="store_true", help="Validate Studio without starting a server")
+
+    studio_job = sub.add_parser("studio-job", help="Read or complete a Studio production request")
+    studio_job_sub = studio_job.add_subparsers(dest="studio_job_action", required=True)
+    studio_job_sub.add_parser("latest", help="Read the newest Studio production request")
+    studio_job_wait = studio_job_sub.add_parser("wait", help="Wait for the user to submit a new Studio request")
+    studio_job_wait.add_argument("--after", default="")
+    studio_job_wait.add_argument("--timeout", type=float, default=600)
+    studio_job_show = studio_job_sub.add_parser("show", help="Read one Studio production request")
+    studio_job_show.add_argument("--job", required=True)
+    studio_job_complete = studio_job_sub.add_parser("complete", help="Register generated local outputs")
+    studio_job_complete.add_argument("--job", required=True)
+    studio_job_complete.add_argument("--output", action="append", required=True)
+
     enable = sub.add_parser("enable", help="Explicitly enable lightweight capture for this project")
     enable.add_argument("--history-dir")
     enable.add_argument("--progress-file", default="docs/progress.md")
@@ -1643,6 +1681,62 @@ def main() -> int:
         path = setup_project(root)
         print(path)
         return 0
+
+    if args.action == "studio":
+        assets_root = Path(__file__).resolve().parents[1] / "assets" / "studio"
+        host_context = studio.load_host_context(
+            Path(args.host_context) if args.host_context else None
+        )
+        if args.check:
+            discovered = studio.discover_sources(root)
+            print(
+                json.dumps(
+                    {
+                        "product": studio.PRODUCT_NAME,
+                        "project": root.name,
+                        "source_count": len(discovered["sources"]),
+                        "conversation_count": len(host_context["conversations"]),
+                        "capture_enabled": False,
+                        "server_started": False,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if not 0 <= args.port <= 65535:
+            raise SystemExit("Studio port must be between 0 and 65535.")
+        studio.run_server(
+            root,
+            assets_root,
+            port=args.port,
+            open_browser=not args.no_open,
+            host_context=host_context,
+        )
+        return 0
+
+    if args.action == "studio-job":
+        if args.studio_job_action == "latest":
+            value = studio.latest_job(root)
+            print(json.dumps(value, ensure_ascii=False, indent=2))
+            return 0
+        if args.studio_job_action == "wait":
+            value = studio.wait_for_job(root, args.after, args.timeout)
+            print(
+                json.dumps(
+                    value if value is not None else {"status": "timeout"},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+        if args.studio_job_action == "show":
+            value = studio.load_job(root, args.job)
+            print(json.dumps(value, ensure_ascii=False, indent=2))
+            return 0
+        if args.studio_job_action == "complete":
+            value = studio.complete_job(root, args.job, args.output)
+            print(json.dumps(value, ensure_ascii=False, indent=2))
+            return 0
 
     if args.action == "enable":
         setup_project(root)

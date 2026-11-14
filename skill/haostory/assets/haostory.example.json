@@ -1,4 +1,15 @@
 {
+  "studio": {
+    "sponsor": {
+      "enabled": true,
+      "lab_name": "浩哥 AI 实验室",
+      "lab_note": "关注 AI 产品、创作与实践",
+      "wechat": "HaoAILab",
+      "wechat_note": "一起玩转 AI",
+      "onetake_name": "OneTake",
+      "onetake_note": "把脚本继续做成视频"
+    }
+  },
   "languages": ["zh-CN", "en"],
   "brand": {
     "name": "",

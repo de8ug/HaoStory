@@ -1,5 +1,17 @@
 # Output package
 
+## Studio jobs
+
+Studio production requests are private handoff records:
+
+```text
+.haostory/studio/jobs/<job-id>/request.json
+```
+
+The `haostory/studio-job/v1` request contains the selected project-relative paths, selected host conversation references, requested formats, chosen angle, audience, goal, supplements, status, and explicit false publication/upload authorization. It never contains console sponsor copy or automatically retrieved conversation bodies.
+
+The invoking agent may open only the selected paths and retrieve only the selected conversation references. `studio-job complete` records project-relative generated outputs after they exist. It does not publish, upload, commit, or push them.
+
 Each task creates a local package:
 
 ```text

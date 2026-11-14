@@ -1,20 +1,60 @@
-# HaoStory
+# HaoStory Studio
 
-> **Local operating policy: paused by default.** HaoStory runs only after Howie explicitly enables it for a named project or requests one manual capture. `setup` initializes configuration but does not opt a project in.
+> **Capture policy: paused by default.** Opening Studio is an explicit, one-time content task and reads only selected material. Ongoing stage capture starts only after Howie explicitly enables it for a named project or requests one manual capture.
 
-**Build it once. Tell it well.**
+**Turn your work into stories worth sharing.**
 
-HaoStory is a local-first, bilingual Agent Skill that turns real development and experiments into evidence-backed articles, video scripts, social posts, and build logs.
+HaoStory Studio is a local-first, open-source content director invoked by AI agents. Select a few project notes, images, or recent conversations; Studio decides what can be made, what material is missing, which structure fits, and how writing, visuals, animation, voice, captions, and editing should work together. The invoking agent performs the concrete production. Studio never scans the whole project by default.
 
 > Created by [Howie Wang](https://howie.wang/) · 浩哥 AI 实验室
 
 [中文说明](README.zh-CN.md)
 
-## Why HaoStory
+## From selected material to publishable drafts
+
+Run HaoStory from a supported agent and it opens a polished local console:
+
+```text
+Choose notes, images, or host-provided conversations
+                         ↓
+Choose article, video, Xiaohongshu, or a bundle
+                         ↓
+Review three recommended story angles and useful material gaps
+                         ↓
+Optionally research current platform patterns and production tools
+                         ↓
+Submit one production blueprint to the invoking agent
+                         ↓
+Review editable local outputs
+```
+
+Studio lists safe filenames and conversation metadata first. It reads file bodies and conversation messages only after the user selects them. Recent conversations are available when the host agent exposes an appropriate API; other agents fall back to the current conversation or user-provided exports.
+
+```bash
+python3 skill/haostory/scripts/haostory.py studio
+```
+
+The official console includes a small Hao AI Lab, WeChat `HaoAILab`, and OneTake footer. It is configurable for forks and is never inserted into generated content.
+
+HaoStory itself stays small. Platform research and tool routing are maintained as dated workflow references: official rules first, public examples as hypotheses, and GitHub repositories as candidates whose license and maintenance must be checked. Concrete production can use the host's writing, image, OneTake, Remotion, FFmpeg, transcription, voice, and editing capabilities with the user's authorization.
+
+## Install and invoke
+
+For a user-wide Codex installation, copy the complete skill directory to `~/.agents/skills/haostory/`. For project-only use, place it under that project's `.agents/skills/haostory/`. Start a new chat after replacing an existing version.
+
+Invoke it explicitly with `$haostory` or choose HaoStory Studio from `/skills`. Natural-language requests can also match the skill description, for example:
+
+> Use HaoStory to turn this project's selected notes and images into an article and short-video production plan.
+
+Explicit invocation is the most deterministic option. Opening Studio is consent for that one content job only; it does not enable continuous capture. The full local console requires a host agent that can read approved local files and run local commands. Hosts without those capabilities can still follow the packaged content workflow, but cannot inspect a local project or open the console on their own.
+
+The packaged archive is written to `dist/haostory.skill`. Agent platforms that accept Skill ZIP uploads may import this archive after their own compatibility and security review. Publishing it to a marketplace, charging for it, or installing it for other users is always a separate action.
+
+## Why HaoStory Studio
 
 Most project stories are reconstructed after the work is done. The useful details are already gone: the failed attempt, the decision that changed, the test output, and the before/after proof.
 
-HaoStory keeps only a few decisive moments while work is happening, then prepares material for later articles or videos. The CLI does not call an AI service. Nothing is committed, pushed, uploaded, produced, or published automatically.
+Studio can work directly from existing, user-selected material. For teams that also want to preserve evidence while work happens, the original stage-aware capture remains available as an optional, paused-by-default source. The CLI does not call an AI service. Nothing is committed, pushed, uploaded, or published automatically.
 
 ## Who it is for
 
@@ -35,7 +75,7 @@ When code exists, HaoStory can capture Git evidence. Code is not required: decis
 - selected command output and automatically preserved key visual evidence;
 - a story-value score that helps decide whether to publish.
 
-## Stage-aware capture
+## Optional stage-aware capture
 
 HaoStory V2 organizes evidence as Project → Initiative → Phase → Capture Window → Event. A phase may be one meaningful development task or a planned roadmap stage. New projects start `off`; explicit `enable` opts a named project into `assisted-auto`. The agent announces lifecycle changes, folds repeats, and normally keeps at most four distinct events per phase.
 
@@ -75,7 +115,7 @@ docs/                                         # only after share-stage --confirm
     └── <up to three key screenshots>
 ```
 
-## Quick start
+## Optional capture quick start
 
 Private raw records stay in Git-ignored `.haostory/`. After phase-level confirmation, a concise record can be prepared in `docs/progress.md` and `docs/screenshots/YYYY-MM-DD/`; committing or syncing it remains a separate user decision. Prefer committing these files with the meaningful code change they explain.
 
@@ -136,6 +176,8 @@ Existing `haostory/v1` manifests and the `start`, `checkpoint`, `finish`, `audit
 ## Open core
 
 The core workflow is open source under the MIT License. Private integrations, tailored workflows, and implementation partnerships may be offered separately. See [howie.wang](https://howie.wang/) for current projects and contact options.
+
+HaoStory can also be adapted for agent marketplaces such as WorkBuddy. A practical distribution model is a free open-source Studio workflow plus an optional paid expert that maintains current platform research, tailored templates, and production orchestration. Marketplace packaging, pricing, review, cloud execution, privacy terms, and payouts belong to the target platform and are not performed by this repository.
 
 ## About Howie
 

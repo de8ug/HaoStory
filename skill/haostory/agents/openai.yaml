@@ -1,0 +1,8 @@
+interface:
+  display_name: "HaoStory Studio"
+  short_description: "把选定的项目材料编排成文章、视频与图文"
+  brand_color: "#CF3D26"
+  default_prompt: "Use $haostory to open HaoStory Studio and design content from the project materials I select."
+
+policy:
+  allow_implicit_invocation: true

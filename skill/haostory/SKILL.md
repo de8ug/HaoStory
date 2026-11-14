@@ -1,157 +1,84 @@
 ---
 name: haostory
-description: Keep a lightweight, stage-based project history with a few key decisions, proofs, and screenshots for later articles or videos. Use only after the user explicitly enables HaoStory for a named project, or asks to organize, review, or produce that project's story materials.
+description: Open HaoStory Studio to turn user-selected project notes, images, or host-provided conversations into articles, video plans, and Xiaohongshu posts. Also supports optional, explicitly enabled project-stage capture. Use when the user wants to discover, organize, or produce shareable content from real work without scanning the whole project.
 ---
 
-# HaoStory
+# HaoStory Studio
 
-Keep the few moments that will make a later article or video true, concrete, and easy to produce.
+跟浩哥一起，用 AI 讲好自己的故事。
 
-## Core rule
+HaoStory Studio is a local, open-source content workspace used by an AI agent. Its default job is to help the user select a small amount of existing material, find a useful story angle, and generate editable content. Continuous project capture is optional and paused by default.
 
-HaoStory is paused by default. Do not start or maintain capture merely because a project is being developed. Record only after the user enables it for a named project or explicitly starts a session.
+## Choose the mode
 
-Record meaningful changes in judgment, not every mechanical action. Keep two possible content layers:
+Use **Studio mode** when the user wants an article, video, Xiaohongshu post, content angle, or a review of existing project material.
 
-1. what was built or learned;
-2. how it was built or learned.
+Use **capture mode** only when the user explicitly enables HaoStory for a named project or asks to preserve a specific stage while work is happening. Do not start capture merely because another project is being developed.
 
-Do not recursively create content about routine packaging unless that work reveals a reusable method, failure, or result. A normal phase should contain no more than four distinct events; repeated events fold together. Preserve an exceptional fifth event only with `--force`.
+## Studio workflow
 
-## Capture modes and authority
+1. Confirm the intended current project. Read [references/privacy.md](references/privacy.md).
+2. Detect host capability without reading private content. Always offer safe material from the current workspace. When the host exposes project or recent-conversation tools, retrieve titles and identifiers only; otherwise use the current conversation or a user-provided export.
+3. If recent conversations are available, write a temporary host-context JSON containing only `host`, `id`, `title`, `project`, and `updated_at`. Never put message bodies in this file.
+4. Note the current latest job ID, then launch the local console:
 
-Read `capture.mode` from `.haostory.json`:
+   ```bash
+   python3 <skill>/scripts/haostory.py studio [--host-context /tmp/haostory-host-context.json]
+   ```
 
-- `manual`: record only after an explicit user request;
-- `assisted-auto`: locally start or resume meaningful work and record high-confidence observable events after the project was explicitly enabled;
-- `off`: do not capture.
+   Keep the managed process running and show the returned local URL when the host cannot open it automatically.
+5. Tell the user that Studio lists names and metadata first; file bodies and conversation messages are read only after selection.
+6. Wait for a newly submitted request:
 
-`setup` initializes an off/paused project. `enable` is the explicit project-level opt-in; `disable` pauses future capture without deleting history. An explicit `start` may create one manual session while the project remains off.
+   ```bash
+   python3 <skill>/scripts/haostory.py studio-job wait --after <previous-job-id>
+   ```
 
-In assisted-auto mode, capture useful screenshots at visual `failure`, `recovery`, `before_after`, `milestone`, and `demo` events and store them directly in the session's `assets/`. Do not create a candidates workflow or interrupt the work for per-image approval. Content production still requires an explicit request, and the finished video or article is the human visual-review gate. Story splitting or merging, people, clients, brand, commercial CTA, registry publication facts, and real publication remain human-controlled.
+7. Read the returned request. Open only `selected_paths`. For each `conversation_ref`, use the host's conversation-reading tool only now, after selection. Do not expand to adjacent chats, full project trees, hidden folders, or source code unless the user separately asks.
+8. Read [references/content-studio.md](references/content-studio.md) and first design the material plan, narrative, production modules, tool routing, and review gates. When `research_current_examples` is true, also read [references/platform-research.md](references/platform-research.md) and research current public rules, representative works, and maintained tools without exposing private material. Then use the invoking agent's available capabilities to produce the requested formats. Ask at most one focused question when a missing fact would materially change the result; otherwise generate with current material.
+9. Save editable outputs in the project or user-approved destination, then register them:
 
-## Stage-aware workflow
+   ```bash
+   python3 <skill>/scripts/haostory.py studio-job complete --job <id> --output <project-relative-file>
+   ```
 
-1. Read `references/privacy.md` before the first capture in a repository.
-2. Run `scripts/haostory.py setup` when the project has no `.haostory.json`. This does not enable capture. Run `enable` only after the user opts in for this named project.
-3. Model work as Project → Initiative → Phase → Capture Window → Event. Phases are `discovery`, `design`, `build`, `validate`, `release`, and `operate`.
-4. Before meaningful work, run `suggest-start` in assisted-auto mode or explicit `start` in manual mode. If capture starts, tell the user in commentary: “HaoStory 已为 `<initiative>/<phase>` 开始本地记录”. Never start silently.
-5. Run `remember` only for a high-confidence observable event: `decision`, `scope_change`, `failure`, `recovery`, `before_after`, `milestone`, `demo`, `metric`, or redacted `external_signal`. Generate a stable `novelty_key`; repeated `event type + novelty_key` attempts fold into one event. Prefer one result, one changed judgment, and one or two pieces of proof over a complete chronology. When the event has useful visual proof, wait for the page or app to stabilize, save the screenshot locally, and attach it with `remember --asset` so it goes directly into `assets/`.
-6. Use `pause` while waiting or excluding a section, `resume` when the same goal and acceptance criteria continue, and `close-phase` when the phase result is known or a handoff enters review. Add only concrete unfinished work with repeatable `--todo`. Closing writes a private `stage-brief.md`, audits the session, reports its asset location, and asks whether to produce video, article, both, archive, or prepare a reviewed project record. It does not export, render, commit, push, upload, publish, or update published-story memory.
-7. If the user has reviewed the whole phase and wants its materials available with the project, run `share-stage --confirmed`. This updates one deterministic block in `docs/progress.md` and copies at most three selected screenshots to `docs/screenshots/YYYY-MM-DD/`. The dated index records a caption and `real`, `demo`, or `mixed` data label. For software work, report missing README startup instructions or runtime URL, but do not edit the README. Return the generated files as the recommended same-commit scope; never run Git or a network operation.
-8. Do not produce content until the user explicitly asks. Then run `registry check`, `story-plan`, `audit`, and explicit `export` before editorial or rendering work. A repeated claim without new evidence routes to archive.
-9. Improve generated drafts using the evidence package. Rewrite or translate each requested language naturally; do not leave untranslated source text in the other language. Do not invent events, metrics, quotes, or results.
-10. Ask for human approval before publishing, registering a story as published, committing or uploading a project record, or copying raw evidence into a public repository.
+10. Report outputs for review. Never publish, upload, commit, push, or register a story as published without a separate request.
 
-Read `references/project-integration.md` when the user wants HaoStory applied automatically across future sessions in a project.
+## Studio privacy rules
 
-## Assisted-auto start rules
+- The source list is metadata-only. Selection is consent to read those items for the current production job, not blanket access to the project.
+- Never recursively read the entire repository, image library, or conversation history.
+- Default local candidates are README files, explanatory Markdown/text under documentation folders, and common images under documentation/media folders.
+- Exclude source trees, dependencies, hidden folders, `.git`, private `.haostory` captures, credentials, browser data, personal photos, private messages, and unrelated third-party material.
+- The official console may show Hao AI Lab, WeChat `HaoAILab`, and OneTake notices. These console notices must never enter job payloads or generated content. Forks may disable or replace them.
+- Opening Studio is an explicit content-production action. It does not enable future capture.
 
-Start or resume automatically only when all are true:
+## Content outcomes
 
-- `.haostory.json` has `capture.mode: assisted-auto`, set by explicit project opt-in;
-- the task is development, a product experiment, content production, or research;
-- it has a stage goal, artifact, or acceptance criteria;
-- no active window covers the same `project + initiative + phase`;
-- the work is outside sensitive or user-excluded scope.
+Studio supports articles and case studies; short-video hooks, scripts, storyboards, animation/audio/caption plans; Xiaohongshu cover copy, carousel structure, body copy, and posting notes; and multi-format bundles grounded in one evidence brief. HaoStory is the director and workflow layer: concrete design, rendering, narration, editing, and export are handed to the invoking agent and the tools it can use.
 
-Do not auto-start for formatting, dependency installation, a simple bug fix, consulting answers, mechanical renames, or packaging without an independent result. Do not checkpoint every command, file save, repeated error, wording change, background restatement, or ordinary passing test.
+Prefer a specific result, changed judgment, visible before/after, or useful failure over a smooth activity log. Never invent events, metrics, quotes, people, or outcomes. Read [references/content-studio.md](references/content-studio.md) for the maintained templates and production contract.
 
-If an event could materially improve the later story but its privacy, relevance, or preferred image is genuinely ambiguous, ask one short question with the smallest useful choice. Otherwise use judgment and continue. Do not ask about routine events or each image.
+## Optional capture mode
 
-Open a new phase when success criteria, target users, product position, release/operation state, or the audience's story question changes. Otherwise pause or resume the existing phase. Build asks how an idea became runnable; validate asks whether it works and where its limits are. Inherited context must remain minimal.
+`setup` initializes capture as `off`. `enable` is the explicit project-level opt-in; `disable` pauses future capture without deleting history. An explicit `start` may create one manual session while the project remains off.
 
-## Visual evidence capture
-
-Capture only a few images that materially support the story: a meaningful before/after, a visible failure, the recovered state, the first stable demo, or a completed milestone. Use the current task's browser/app capture capability; HaoStory itself is not a background screen recorder.
-
-Before saving, wait for loading, transitions, and entrance animations to finish. Reject and recapture transparent first frames, spinners, blank states, clipped layouts, or images that do not show the claimed result. Capture desktop and mobile views only when each proves something useful. Save directly with `remember --asset`; do not create `candidates/`, thumbnails, or approval queues.
-
-## Session and path routing
-
-Omit `--session` only when exactly one active or paused capture window exists. If multiple windows are active or paused, stop and ask the user to choose from the CLI's listed candidates; never infer from directory names. With no active window, V1 compatibility selects the manifest with the latest `updated_at`.
-
-Treat ordinary `--session` values as direct child names under the current project's `.haostory/`. Do not pass absolute paths, `..`, separators, or symlinks. Keep `story_memory.registry` inside that same `.haostory/` directory.
-
-## Commands
-
-From the target project root:
+When enabled, model work as Project → Initiative → Phase → Capture Window → Event. Keep at most four distinct, high-confidence events per phase and fold retries. Useful events are decisions, scope changes, meaningful failures and recoveries, before/after proof, milestones, demos, metrics, and redacted external signals.
 
 ```bash
 python3 <skill>/scripts/haostory.py setup
 python3 <skill>/scripts/haostory.py enable --progress-file docs/progress.md --screenshots-dir docs/screenshots
-python3 <skill>/scripts/haostory.py suggest-start --title "Stage goal" --initiative capture-v2 --phase build
-python3 <skill>/scripts/haostory.py start --title "Task title" --summary "Why it matters" --type product
-python3 <skill>/scripts/haostory.py checkpoint --stage decision --notes "What changed" --decision "Why"
-python3 <skill>/scripts/haostory.py checkpoint --stage tests --notes "What was verified" --run npm test
-python3 <skill>/scripts/haostory.py remember --event demo --notes "Stable result" --novelty-key first-demo --asset /tmp/stable-demo.png --data-kind demo
-python3 <skill>/scripts/haostory.py pause --reason "This section is excluded"
-python3 <skill>/scripts/haostory.py resume
+python3 <skill>/scripts/haostory.py suggest-start --title "Stage goal" --initiative project-v1 --phase build
+python3 <skill>/scripts/haostory.py remember --event demo --notes "Stable result" --novelty-key first-demo --asset /tmp/demo.png --data-kind demo
 python3 <skill>/scripts/haostory.py close-phase --result "What is now known" --todo "What remains" --handoff
 python3 <skill>/scripts/haostory.py share-stage --confirmed
 python3 <skill>/scripts/haostory.py disable
-python3 <skill>/scripts/haostory.py archive-only --reason "The user said this must not be public"
-python3 <skill>/scripts/haostory.py registry do-not-repeat --text "Background that must not be repeated"
-python3 <skill>/scripts/haostory.py registry check
-python3 <skill>/scripts/haostory.py story-plan
-python3 <skill>/scripts/haostory.py finish --outcome "What happened" --lesson "What changed in our understanding"
-python3 <skill>/scripts/haostory.py audit
-python3 <skill>/scripts/haostory.py export
-python3 <skill>/scripts/haostory.py registry publish --story story-id --channel channel-name --confirmed
 ```
 
-Use `--asset path/to/file` for task-relevant visual evidence captured by the Agent or explicitly provided by the user. Add `--data-kind real`, `demo`, or `mixed` whenever an image is present. The CLI copies it directly into the session and prevents filename collisions. Treat screenshots as potentially sensitive even when the text audit passes; never capture prohibited contexts listed in `references/privacy.md`.
+Capture stable visual proof directly into private session assets; do not create candidate queues or ask about every image. `share-stage` may update `docs/progress.md` and copy at most three reviewed screenshots to `docs/screenshots/YYYY-MM-DD/`, but it never runs Git or a network operation. Read [references/project-integration.md](references/project-integration.md) before adding future-session project instructions and [references/output-schema.md](references/output-schema.md) before changing compatibility behavior.
 
-## Output policy
+## Publication and brand boundary
 
-Keep raw evidence local under ignored `.haostory/`. A confirmed project record contains one concise entry in `docs/progress.md` and at most three selected images plus captions under `docs/screenshots/YYYY-MM-DD/`, so it can be reviewed and later included in ordinary version control with the code it explains. If more than three images exist, choose explicitly with repeatable `share-stage --asset`; if a legacy image lacks a data label, pass one `--data-kind` fallback. Preparing files is not approval to commit, push, upload, publish, or produce final content. Read `references/output-schema.md` when changing either layer.
+Generated work is a draft until the user reviews it. Keep claims factual and language natural in every requested language. Apply the user's own brand only from approved configuration or explicit direction. Read [references/brand-and-commercial.md](references/brand-and-commercial.md) before adding attribution, calls to action, sponsor language, or commercial availability.
 
-Generated drafts are scaffolds, not final editorial copy. Strengthen them around one tension, one changed judgment, and verifiable proof. Prefer:
-
-- a specific result over a broad claim;
-- a failed attempt over a smooth chronology;
-- before/after evidence over adjectives;
-- the user's judgment over generic AI narration.
-
-## Story selection
-
-Export only after an explicit request. Recommend a standalone story only when it has a new claim or new evidence and sufficient proof. Otherwise route it to archive or merge later. For eligible work, retain the V1 story-value signals:
-
-- a real conflict or surprise;
-- a decision that changed;
-- visual or test evidence;
-- a lesson useful beyond this project;
-- a timely reason to care;
-- a result that can be demonstrated.
-
-Read `references/story-shapes.md` when choosing an article or video angle.
-
-Old `haostory/v1` manifests and `start/checkpoint/finish/audit/export` remain supported. V2 adds optional fields and never requires destructive migration. Read `references/output-schema.md` before changing compatibility behavior.
-
-## Natural-language control
-
-Map intent to deterministic operations:
-
-| User intent | Action |
-|---|---|
-| “这个项目开始用 HaoStory” | `enable` for the named project, then announce the local opt-in |
-| “从这里开始记录” | `start` the current phase |
-| “这是上一阶段的继续” | start/resume with the same initiative and inherited context |
-| “这段别记” | `pause` and retain the exclusion reason |
-| “这个失败留一下” | `remember --event failure --force` |
-| “这个可以单独做一期” | mark a standalone candidate for human review |
-| “前面不用再讲了” | `registry do-not-repeat --text "..."` |
-| “到这里先结束” | `close-phase`, then report assets and ask whether to produce content |
-| “把这阶段材料放到项目里” | after phase-level review, `share-stage --confirmed` |
-| “把这阶段整理成视频和文章” | `registry check`, `story-plan`, `audit`, then explicit `export` |
-| “这两个阶段合成一篇” | create a human-approved combined plan without changing source evidence |
-| “这次不要公开” | `archive-only --reason "..."` |
-| “这个项目先别记录了” | `disable` without deleting prior records |
-
-## Brand and commercial boundary
-
-Keep public defaults neutral. Apply the user's brand only from `.haostory.json`. Read `references/brand-and-commercial.md` before adding attribution, calls to action, sponsor language, or commercial availability.
-
-## Privacy boundary
-
-Never capture `.env` files, credentials, cookies, private keys, browser profiles, production user data, private conversations, or unrelated screens. The text sanitizer reduces risk but does not inspect image pixels. If the privacy report contains a high-severity finding, do not recommend production or publication. Review the finished content before release.
+Old `haostory/v1` manifests and `start`, `checkpoint`, `finish`, `audit`, and `export` remain supported. The local story registry is publication memory, not permission to publish.

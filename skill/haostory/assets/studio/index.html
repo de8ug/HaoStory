@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>HaoStory Studio</title>
+  <link rel="stylesheet" href="/studio.css">
+</head>
+<body>
+  <div class="paper-grain" aria-hidden="true"></div>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="HaoStory Studio 首页">
+      <span class="brand-mark">好</span>
+      <span><strong>HaoStory</strong><small>STUDIO</small></span>
+    </a>
+    <div class="local-badge"><span></span> 本地运行 · 只读所选材料</div>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <p class="eyebrow">AI CONTENT WORKSHOP</p>
+      <h1 id="hero-title">跟浩哥一起，<br><em>用 AI 讲好自己的故事。</em></h1>
+      <p class="hero-copy">从项目说明、近期对话和关键图片中，找到真正值得分享的内容。生成文章、视频脚本和小红书图文。</p>
+      <div class="hero-note">不扫描整个工程。你先选择，HaoStory 才会读取。</div>
+    </section>
+
+    <nav class="steps" aria-label="制作步骤">
+      <a class="step active" href="#materials"><b>01</b><span>选择材料</span></a>
+      <a class="step" href="#formats"><b>02</b><span>选择形式</span></a>
+      <a class="step" href="#angles"><b>03</b><span>确定角度</span></a>
+      <a class="step" href="#produce"><b>04</b><span>交给智能体</span></a>
+    </nav>
+
+    <div class="workspace">
+      <div class="canvas">
+        <section class="panel" id="materials" aria-labelledby="materials-title">
+          <div class="section-heading">
+            <div><span class="number">01</span><h2 id="materials-title">这次用哪些材料？</h2></div>
+            <span class="selection-count" id="selection-count">已选 0 项</span>
+          </div>
+
+          <div class="source-tabs" role="tablist" aria-label="材料来源">
+            <button id="project-tab" class="source-tab active" type="button" role="tab" aria-selected="true">当前工程</button>
+            <button id="conversation-tab" class="source-tab" type="button" role="tab" aria-selected="false" disabled title="由支持会话接口的智能体接入">近期会话 <i>宿主接入</i></button>
+            <button class="source-tab" type="button" role="tab" aria-selected="false" disabled>手动导入 <i>即将支持</i></button>
+          </div>
+
+          <div class="project-strip">
+            <div><small>当前工程</small><strong id="project-name">正在识别…</strong></div>
+            <p>这里只展示说明文档和常见图片的名称，尚未读取正文。</p>
+          </div>
+
+          <div id="source-list" class="source-list" aria-live="polite">
+            <div class="loading-row"><span></span> 正在寻找可用材料…</div>
+          </div>
+        </section>
+
+        <section class="panel" id="formats" aria-labelledby="formats-title">
+          <div class="section-heading">
+            <div><span class="number">02</span><h2 id="formats-title">想做成什么？</h2></div>
+            <p>可以多选，共用同一组事实，分别适配表达方式。</p>
+          </div>
+          <div id="format-grid" class="format-grid"></div>
+          <div class="brief-grid">
+            <label>这次最想表达什么？<input id="goal" type="text" placeholder="例如：分享一次从失败到可用的真实过程"></label>
+            <label>主要讲给谁听？<input id="audience" type="text" placeholder="例如：独立开发者、创作者、家长"></label>
+          </div>
+          <button id="analyze-button" class="primary-button" type="button"><span>分析材料并推荐方向</span><b>→</b></button>
+          <p id="form-error" class="form-error" role="alert"></p>
+        </section>
+
+        <section class="panel muted-panel" id="angles" aria-labelledby="angles-title">
+          <div class="section-heading">
+            <div><span class="number">03</span><h2 id="angles-title">选择一个好故事角度</h2></div>
+            <p>推荐会根据你选中的材料变化。</p>
+          </div>
+          <div id="recommendations" class="recommendations empty-state">
+            <div class="empty-seal">待</div>
+            <p>选择材料和内容形式后，HaoStory 会给出三个适合的制作方向。</p>
+          </div>
+          <div id="gaps" class="gaps" hidden></div>
+        </section>
+
+        <section class="panel muted-panel" id="produce" aria-labelledby="produce-title">
+          <div class="section-heading">
+            <div><span class="number">04</span><h2 id="produce-title">交给智能体继续制作</h2></div>
+          </div>
+          <label class="supplement-label">补充要求（可选）<textarea id="supplements" rows="4" placeholder="语气、长度、必须保留的观点，或者直接写“按现有材料生成”"></textarea></label>
+          <label class="consent-row"><input id="research-current" type="checkbox"><span>允许智能体联网调研当前平台的公开规则、优秀案例和开源制作工具；不会上传或搜索我的项目原文。</span></label>
+          <label class="consent-row"><input id="consent" type="checkbox"><span>我确认只让智能体读取上面选中的材料；生成内容仍需人工检查后才能发布。</span></label>
+          <button id="create-button" class="primary-button ink" type="button" disabled><span>创建制作任务</span><b>↗</b></button>
+          <div id="job-success" class="job-success" hidden></div>
+        </section>
+      </div>
+
+      <aside class="sidebar" aria-label="材料状态">
+        <div class="sidebar-card">
+          <p class="sidebar-kicker">MATERIAL CHECK</p>
+          <h3>材料完整度</h3>
+          <div class="meter"><span id="meter-value"></span></div>
+          <strong id="meter-label">等待选择材料</strong>
+          <ul id="material-summary">
+            <li><span>文字说明</span><b>0</b></li>
+            <li><span>关键图片</span><b>0</b></li>
+            <li><span>近期会话</span><b>0</b></li>
+            <li><span>内容形式</span><b>0</b></li>
+          </ul>
+        </div>
+        <div class="privacy-card">
+          <span class="shield">◇</span>
+          <div><strong>选择之后才读取</strong><p>源代码、隐藏目录、密钥和私有 HaoStory 记录不会进入候选列表。</p></div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer>
+    <div id="sponsor-footer" class="footer-brand">
+      <span class="brand-mark small">浩</span>
+      <div><strong id="sponsor-lab"></strong><p id="sponsor-lab-note"></p></div>
+    </div>
+    <div id="sponsor-links" class="footer-links">
+      <p>微信 <b id="sponsor-wechat"></b> · <span id="sponsor-wechat-note"></span></p>
+      <p>视频制作推荐 <b id="sponsor-onetake"></b> · <span id="sponsor-onetake-note"></span></p>
+    </div>
+    <p class="open-source">OPEN SOURCE · LOCAL FIRST</p>
+  </footer>
+
+  <script src="/studio.js"></script>
+</body>
+</html>
